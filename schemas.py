@@ -23,12 +23,11 @@ class ExpiryAlert(BaseModel):
     item_name: str
     days_remaining: int
     status: str 
-
-# --- NEW: VISUAL INPUT SCHEMA ---
+    
 class ImageAnalysisRequest(BaseModel):
     image_base64: str  # Frontend sends image as Base64 string
 
-# --- 2. USER & PROFILE ---
+#  2. USER & PROFILE 
 class UserBase(BaseModel):
     username: str
     preferences: str = "None"
@@ -48,13 +47,13 @@ class User(UserBase):
     class Config:
         from_attributes = True
 
-# --- 3. RECIPES & SMART SEARCH ---
+# 3. RECIPES & SMART SEARCH 
 class RecipeRequest(BaseModel):
     user_id: int
     meal_type: str = "dinner"
     effort_level: Optional[str] = "normal"
 
-# NEW: Smart Search Schema
+# Smart Search Schema
 class SearchRequest(BaseModel):
     user_id: int
     query: str
@@ -110,7 +109,7 @@ class SavedRecipe(SavedRecipeCreate):
     class Config:
         from_attributes = True
 
-# --- 5. COOKING MENTOR ---
+# 5. COOKING MENTOR 
 class SessionStartRequest(BaseModel):
     user_id: int
     recipe_data: StructuredRecipe 
@@ -125,7 +124,7 @@ class MentorStepResponse(BaseModel):
     voice_response_text: str
     all_step_timers: List[int] = []
 
-# --- 6. DAY PLAN ---
+#  6. DAY PLAN 
 class DayPlanRequest(BaseModel):
     user_id: int
     diet_preference: str = "non-veg"
