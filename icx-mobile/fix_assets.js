@@ -17,12 +17,12 @@ const filesToFix = [
 
 filesToFix.forEach(file => {
   const filePath = path.join(__dirname, file);
-  // Only write if file exists (to avoid errors if folders differ) or create it if missing
+ 
   try {
     fs.writeFileSync(filePath, VALID_PNG);
-    console.log(`✅ Fixed: ${file}`);
+    console.log(` Fixed: ${file}`);
   } catch (err) {
-    console.error(`❌ Could not fix ${file} (Folder might be missing)`);
+    console.error(` Could not fix ${file} (Folder might be missing)`);
   }
 });
 
