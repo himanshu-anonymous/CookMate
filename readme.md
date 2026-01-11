@@ -1,4 +1,4 @@
-# 🍳 CookMate
+#  CookMate
 > **Bridging the gap between intent and action.**
 
 ![Banner](banner.jpg)
