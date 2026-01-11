@@ -1,7 +1,7 @@
 # 🍳 CookMate
 > **Bridging the gap between intent and action.**
 
-![Banner](https://via.placeholder.com/1000x300?text=CookMate+Banner+Image+Here)
+![Banner](banner.jpg)
 
 ## The Problem
 71% of Gen Z actively seek healthy options, but only **11% cook daily**. The intent is there, but the infrastructure is missing.
@@ -14,15 +14,15 @@ For young adults, the kitchen is a source of anxiety, decision fatigue, and the 
 * **Zero Friction:** No subscriptions. No gated content.
 
 ## Key Features
-- **📸 Smart Pantry:** AI Computer Vision to detect ingredients from a single photo.
-- ** Dynamic Recipe Engine:** Generates recipes based on your specific inventory and effort level (Lazy vs. Chef).
-- ** Voice Mentor:** A stateful AI that guides you step-by-step (e.g., "Is the pan hot enough?").
-- ** Adaptive Personas:** AI personalities that change tone to keep you motivated.
+- **Smart Pantry:** AI Computer Vision to detect ingredients from a single photo.
+- **Dynamic Recipe Engine:** Generates recipes based on your specific inventory and effort level (Lazy vs. Chef).
+- **Voice Mentor:** A stateful AI that guides you step-by-step (e.g., "Is the pan hot enough?").
+- **Adaptive Personas:** AI personalities that change tone to keep you motivated.
 
 ## Screenshots
 | Dashboard | Recipe Gen | Cooking Mode |
 |:---:|:---:|:---:|
-| ![Dash](link_to_image_1) | ![Recipe](link_to_image_2) | ![Player](link_to_image_3) |
+| ![Dash](Screenshot_20260111-162442.png) | ![Recipe](Screenshot_20260111-162526.png) | ![Player](Screenshot_20260111-162509.png) |
 
 ## 🛠️ Tech Stack
 * **Frontend:** React Native, Expo, NativeWind (TailwindCSS)
@@ -32,7 +32,7 @@ For young adults, the kitchen is a source of anxiety, decision fatigue, and the 
 ## 👨‍💻 Team RuntimeTerror
 * **Himanshu Patil** - Backend & AI Architecture
 * **Mokshit Verma** - Frontend & UI/UX Experience
-* **Aryan Mandal** - Deployment, Testing & QA
+* **Aryan Mandal** - Deployment, Testing & QnA
 * **Chirag Parmar** - Product Direction & Narrative
 
 ## ⚙️ Installation & Setup
