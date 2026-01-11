@@ -9,7 +9,7 @@ from pathlib import Path
 current_folder = Path(__file__).resolve().parent
 env_path = current_folder / ".env"
 
-print(f"📂 Looking for .env at: {env_path}")
+print(f" Looking for .env at: {env_path}")
 load_dotenv(dotenv_path=env_path)
 
 ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -17,7 +17,7 @@ API_KEY = os.getenv("AZURE_OPENAI_KEY")
 
 async def list_deployments():
     if not ENDPOINT or not API_KEY:
-        print("❌ Error: Still can't find keys. Is the file named '.env' exactly?")
+        print(" Error: Still can't find keys. Is the file named '.env' exactly?")
         return
 
     # Clean the endpoint url
@@ -33,19 +33,19 @@ async def list_deployments():
         
         if response.status_code == 200:
             data = response.json()
-            print("\n✅ SUCCESS! Found these Deployments:")
+            print("\n SUCCESS! Found these Deployments:")
             print("-" * 40)
             if len(data['data']) == 0:
-                print("⚠️  NO DEPLOYMENTS FOUND.")
+                print("  NO DEPLOYMENTS FOUND.")
                 print("ACTION: Go to Azure Studio -> Deployments -> Create New.")
                 print("Select Model: gpt-35-turbo")
             else:
                 for item in data['data']:
-                    print(f"👉 DEPLOYMENT NAME:  {item['id']}") # <--- THIS IS THE NAME YOU NEED
+                    print(f" DEPLOYMENT NAME:  {item['id']}") # <--- THIS IS THE NAME YOU NEED
                     print(f"   Model: {item['model']}")
                     print("-" * 40)
         else:
-            print(f"\n❌ FAILED. Status: {response.status_code}")
+            print(f"\n FAILED. Status: {response.status_code}")
             print(f"Message: {response.text}")
 
 if __name__ == "__main__":
