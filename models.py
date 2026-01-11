@@ -4,7 +4,7 @@ from database import Base
 from datetime import datetime
 import enum
 
-# --- 1. DEFINE PERSONAS ---
+#  1. DEFINE PERSONAS 
 class UserPersona(str, enum.Enum):
     HOSTELER = "hosteler"
     INDIAN_MOM = "indian_mom"
@@ -17,23 +17,23 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
     
-    # --- Core Profile ---
+    #  Core Profile 
     persona = Column(Enum(UserPersona), default=UserPersona.HOSTELER) # The "Brain" Type
     preferences = Column(String, default="None")    # e.g., "Vegetarian"
     dietary_goal = Column(String, default="Balanced") # e.g., "Muscle Gain"
     allergies = Column(String, default="None")      # e.g., "Peanuts"
     portion_multiplier = Column(Float, default=1.0)
     
-    # --- Dynamic Context ---
+    #  Dynamic Context 
     taste_profile = Column(JSON, default={}) 
     current_effort_level = Column(String, default="normal") # low, normal, high
     planning_horizon = Column(String, default="daily") 
     
-    # --- Gamification ---
+    #  Gamification 
     streak_count = Column(Integer, default=0)
     last_cooked_date = Column(DateTime, nullable=True)
     
-    # --- Relationships ---
+    #  Relationships 
     inventory = relationship("InventoryItem", back_populates="owner")
     meal_logs = relationship("MealLog", back_populates="owner")
     saved_recipes = relationship("SavedRecipe", back_populates="owner")
