@@ -17,7 +17,6 @@ const Tab = createBottomTabNavigator();
 
 // --- 1. THE BOTTOM TABS ---
 function MainTabs({ route }) {
-  // Receive user data from Login and pass it to all tabs
   const { user } = route.params; 
 
   return (
@@ -25,15 +24,15 @@ function MainTabs({ route }) {
       screenOptions={{
         headerShown: false,
         tabBarStyle: { 
-          backgroundColor: '#F5E8D5', // Cream Background
+          backgroundColor: '#F5E8D5', 
           borderTopWidth: 0,
           height: 80,
           elevation: 0,
           paddingTop: 10,
         },
-        tabBarActiveTintColor: '#5F8063', // Sage Green
-        tabBarInactiveTintColor: '#A8BFA6', // Light Green
-        tabBarShowLabel: false, // Modern Icon-only look
+        tabBarActiveTintColor: '#5F8063', 
+        tabBarInactiveTintColor: '#A8BFA6', 
+        tabBarShowLabel: false, 
       }}
     >
       <Tab.Screen 
