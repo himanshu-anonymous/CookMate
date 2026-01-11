@@ -3,13 +3,11 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
-from datetime import datetime, timedelta # Needed for shelf life logic
+from datetime import datetime, timedelta 
 import os
 import json
 import models, schemas
 from database import SessionLocal, engine
-
-# --- IMPORT FROM SERVICES FOLDER ---
 from services import ai_chef
 
 # --- 1. SETUP & CONFIGURATION ---
@@ -37,7 +35,7 @@ def get_db():
     finally:
         db.close()
 
-# --- 2. CORE ENDPOINTS (User & Inventory) ---
+#  2. CORE ENDPOINTS (User & Inventory) 
 
 @app.post("/users/", response_model=schemas.User)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
@@ -75,20 +73,20 @@ def add_inventory(user_id: int, items: list[schemas.InventoryItemCreate], db: Se
 def get_inventory(user_id: int, db: Session = Depends(get_db)):
     return db.query(models.InventoryItem).filter(models.InventoryItem.user_id == user_id).all()
 
-# --- NEW: VISUAL INPUT ENDPOINT ---
+#  NEW: VISUAL INPUT ENDPOINT 
 @app.post("/inventory/analyze-image")
 def analyze_inventory_image(request: schemas.ImageAnalysisRequest):
     """
     Frontend sends a base64 photo of the fridge.
     AI returns a list of detected ingredients.
     """
-    print("👁️ Analyzing Pantry Image...")
+    print(" Analyzing Pantry Image...")
     # Calls the vision function in ai_chef.py
     detected_items = ai_chef.analyze_pantry_image(request.image_base64)
     return {"detected_items": detected_items}
 
 
-# --- 3. INTELLIGENT ENDPOINTS (Recipe & Search) ---
+#  3. INTELLIGENT ENDPOINTS (Recipe & Search) 
 
 @app.post("/generate-recipe/")
 def generate_recipe(request: schemas.RecipeRequest, db: Session = Depends(get_db)):
@@ -132,13 +130,13 @@ def generate_recipe(request: schemas.RecipeRequest, db: Session = Depends(get_db
         )
 
         if recipe_data and "dish_name" in recipe_data:
-            print("✅ Recipe Generated Successfully")
+            print(" Recipe Generated Successfully")
             return recipe_data
         else:
             raise ValueError("Empty response from AI Chef")
 
     except Exception as e:
-        print(f"⚠️ AI Failed: {e}")
+        print(f" AI Failed: {e}")
         # Fallback
         return {
             "dish_name": "Emergency Pantry Pasta",
@@ -168,7 +166,7 @@ def rate_meal(request: schemas.RateMealRequest, db: Session = Depends(get_db)):
     """
     User rates a meal. Used for Collaborative Filtering logic later.
     """
-    print(f"⭐ User {request.user_id} rated '{request.dish_name}' {request.rating}/5")
+    print(f" User {request.user_id} rated '{request.dish_name}' {request.rating}/5")
     # Logic to save rating to DB would go here
     return {"status": "recorded"}
 
