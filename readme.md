@@ -29,13 +29,12 @@ For young adults, the kitchen is a source of anxiety, decision fatigue, and the 
 * **Backend:** Python, FastAPI
 * **AI/ML:** Computer Vision (Inventory), NLP (Recipe Generation)
 
-## 👨‍💻 Team RuntimeTerror
+##  Team RuntimeTerror
 * **Himanshu Patil** - Backend & AI Architecture
-* **Mokshit Verma** - Frontend & UI/UX Experience
-* **Aryan Mandal** - Deployment, Testing & QnA
-* **Chirag Parmar** - Product Direction & Narrative
 
-## ⚙️ Installation & Setup
+* **Aryan Mandal** - Deployment, Testing & QnA
+
+##  Installation & Setup
 
 ### Prerequisites
 * Node.js & npm
