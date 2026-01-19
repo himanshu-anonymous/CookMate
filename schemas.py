@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from models import UserPersona 
 
-# --- 1. INVENTORY & EXPIRY ---
+# 1. INVENTORY & EXPIRY
 class InventoryItemBase(BaseModel):
     name: str
     quantity: float
@@ -95,7 +95,7 @@ class StructuredRecipe(BaseModel):
     prep_time_minutes: int = 5
     cleanup_score: str = "medium"
 
-# --- 4. SAVED RECIPES ---
+# 4. SAVED RECIPES 
 class SavedRecipeCreate(BaseModel):
     dish_name: str
     recipe_json: Dict[str, Any]
