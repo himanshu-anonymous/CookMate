@@ -32,7 +32,7 @@ For young adults, the kitchen is a source of anxiety, decision fatigue, and the 
 ##  Team RuntimeTerror
 * **Himanshu Patil** - Backend & AI Architecture
 
-* **Aryan Mandal** - Deployment, Testing & QnA
+* **Aditya Gavane** - Deployment, Framework design, Testing & QnA
 
 ##  Installation & Setup
 
