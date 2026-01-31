@@ -5,10 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { cookmateAPI } from '../services/api';
 
-// --- SAFE MODE COLORS (To prevent crashes) ---
 const COLORS = { primary: '#2D4F38', background: '#F7F3E8', white: '#FFFFFF', accent: '#D4A056', textSecondary: '#6B7280' };
-const SHADOWS = { medium: { elevation: 5, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 4 } };
-// ---------------------------------------------
 
 const ScannerScreen = ({ navigation }) => {
   const [hasPermission, setHasPermission] = useState(null);
@@ -34,13 +31,12 @@ const ScannerScreen = ({ navigation }) => {
     if (!image) return;
     setLoading(true);
     try {
-      // Hardcoded User ID 1 for Demo
       const response = await cookmateAPI.scanBill(1, image);
-      Alert.alert("Success", `Found items! Backend says: ${JSON.stringify(response)}`);
+      Alert.alert("Success", `Found: ${JSON.stringify(response.items || response)}`);
       navigation.navigate('Home');
     } catch (error) {
       console.error(error);
-      Alert.alert("Error", "Could not connect to Backend. Is your Laptop IP correct?");
+      Alert.alert("Error", "Could not connect to Backend. Check IP.");
     } finally {
       setLoading(false);
     }
@@ -51,7 +47,6 @@ const ScannerScreen = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={28} color={COLORS.primary} />
@@ -60,7 +55,6 @@ const ScannerScreen = ({ navigation }) => {
         <View style={{ width: 28 }} />
       </View>
 
-      {/* Content */}
       <View style={styles.content}>
         {image ? (
           <Image source={{ uri: image }} style={styles.preview} />
@@ -71,7 +65,6 @@ const ScannerScreen = ({ navigation }) => {
           </TouchableOpacity>
         )}
 
-        {/* Buttons */}
         {loading ? (
           <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 20 }} />
         ) : (
@@ -81,7 +74,6 @@ const ScannerScreen = ({ navigation }) => {
                 <Text style={styles.btnText}>Analyze Bill</Text>
               </TouchableOpacity>
             )}
-            
             {image && (
               <TouchableOpacity onPress={() => setImage(null)} style={{ marginTop: 20 }}>
                 <Text style={{ color: COLORS.textSecondary }}>Retake</Text>
@@ -101,7 +93,7 @@ const styles = StyleSheet.create({
   content: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
   uploadBox: { width: '100%', height: 300, backgroundColor: COLORS.white, borderRadius: 20, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: COLORS.accent, borderStyle: 'dashed' },
   preview: { width: '100%', height: 400, borderRadius: 20, marginBottom: 20 },
-  btn: { backgroundColor: COLORS.primary, paddingVertical: 15, paddingHorizontal: 40, borderRadius: 30, marginTop: 10, ...SHADOWS.medium },
+  btn: { backgroundColor: COLORS.primary, paddingVertical: 15, paddingHorizontal: 40, borderRadius: 30, marginTop: 10, elevation: 5 },
   btnText: { color: COLORS.white, fontSize: 18, fontWeight: 'bold' }
 });
 
