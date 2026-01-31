@@ -1,49 +1,56 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { View, Text, Image, TouchableOpacity, Alert, ActivityIndicator, StyleSheet } from 'react-native';
-import { Camera } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { cookmateAPI } from '../services/api';
 
 const COLORS = { primary: '#2D4F38', background: '#F7F3E8', white: '#FFFFFF', accent: '#D4A056', textSecondary: '#6B7280' };
 
-const ScannerScreen = ({ navigation }) => {
-  const [hasPermission, setHasPermission] = useState(null);
+const ScannerScreen = ({ navigation, route }) => {
+  const userId = route.params?.userId || 1;
   const [image, setImage] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      const { status } = await Camera.requestCameraPermissionsAsync();
-      setHasPermission(status === 'granted');
-    })();
-  }, []);
-
   const pickImage = async () => {
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 1,
-    });
-    if (!result.canceled) setImage(result.assets[0].uri);
+    // We removed the complex permission check to keep it simple.
+    // Expo handles the permission request automatically when launchImageLibraryAsync is called.
+    try {
+      let result = await ImagePicker.launchImageLibraryAsync({
+        // 🔙 REVERTED: Using the older option that works for your version
+        mediaTypes: ImagePicker.MediaTypeOptions.Images, 
+        quality: 1,
+      });
+
+      if (!result.canceled) {
+        setImage(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error(error);
+      Alert.alert("Error", "Could not open gallery.");
+    }
   };
 
   const handleUpload = async () => {
     if (!image) return;
     setLoading(true);
     try {
-      const response = await cookmateAPI.scanBill(1, image);
-      Alert.alert("Success", `Found: ${JSON.stringify(response.items || response)}`);
-      navigation.navigate('Home');
+      console.log(`Uploading bill for User ${userId}...`);
+      
+      // Call the API (which uses the new 'fetch' fix)
+      const response = await cookmateAPI.scanBill(userId, image);
+      
+      Alert.alert(
+        "Success! 🥬", 
+        `Added ${response.items_added || "items"} to your pantry.`,
+        [{ text: "View Pantry", onPress: () => navigation.navigate('Inventory', { userId: userId }) }]
+      );
     } catch (error) {
-      console.error(error);
-      Alert.alert("Error", "Could not connect to Backend. Check IP.");
+      console.error("Upload Failed:", error);
+      Alert.alert("Upload Failed", "Check your backend connection.");
     } finally {
       setLoading(false);
     }
   };
-
-  if (hasPermission === null) return <View />;
-  if (hasPermission === false) return <Text style={{marginTop:50, textAlign:'center'}}>No camera access</Text>;
 
   return (
     <View style={styles.container}>
@@ -61,17 +68,17 @@ const ScannerScreen = ({ navigation }) => {
         ) : (
           <TouchableOpacity style={styles.uploadBox} onPress={pickImage}>
             <Ionicons name="cloud-upload-outline" size={50} color={COLORS.accent} />
-            <Text style={{ marginTop: 10, color: COLORS.textSecondary }}>Tap to Upload Bill</Text>
+            <Text style={styles.textSecondary}>Tap to Upload Bill</Text>
           </TouchableOpacity>
         )}
 
         {loading ? (
-          <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 20 }} />
+          <ActivityIndicator size="large" color={COLORS.primary} style={{marginTop: 20}} />
         ) : (
           <View style={{ width: '100%', alignItems: 'center' }}>
             {image && (
               <TouchableOpacity style={styles.btn} onPress={handleUpload}>
-                <Text style={styles.btnText}>Analyze Bill</Text>
+                <Text style={styles.btnText}>Analyze & Add Items</Text>
               </TouchableOpacity>
             )}
             {image && (
@@ -94,7 +101,8 @@ const styles = StyleSheet.create({
   uploadBox: { width: '100%', height: 300, backgroundColor: COLORS.white, borderRadius: 20, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: COLORS.accent, borderStyle: 'dashed' },
   preview: { width: '100%', height: 400, borderRadius: 20, marginBottom: 20 },
   btn: { backgroundColor: COLORS.primary, paddingVertical: 15, paddingHorizontal: 40, borderRadius: 30, marginTop: 10, elevation: 5 },
-  btnText: { color: COLORS.white, fontSize: 18, fontWeight: 'bold' }
+  btnText: { color: COLORS.white, fontSize: 18, fontWeight: 'bold' },
+  textSecondary: { marginTop: 10, color: COLORS.textSecondary, fontSize: 16 }
 });
 
 export default ScannerScreen;

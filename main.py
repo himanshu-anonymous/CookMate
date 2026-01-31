@@ -67,6 +67,18 @@ def onboard_user(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
     db.refresh(new_user)
     return new_user
 
+@app.post("/users/login")
+def login_user(username: str = Body(..., embed=True), db: Session = Depends(get_db)):
+    """
+    Simple Login: Checks if username exists and returns the User ID.
+    """
+    user = db.query(models.UserDB).filter(models.UserDB.username == username).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found. Please Register.")
+    
+    return {"id": user.id, "username": user.username, "persona": user.persona}
+
 @app.get("/users/stats/{user_id}")
 def get_user_stats(user_id: int, db: Session = Depends(get_db)):
     """
@@ -242,34 +254,110 @@ def daily_plan(user_id: int = Body(..., embed=True), db: Session = Depends(get_d
 # 4. MENTOR LOOP (The "Cook With Me" Mode)
 # ==========================================
 
+# --- UPDATE IN main.py ---
+
 @app.post("/mentor/start")
 def start_session(req: schemas.SessionStart):
-    """Initializes a cooking session. Plays the Audio Intro."""
+    """
+    Starts a session AND saves the steps for this specific recipe.
+    """
     session_id = len(active_sessions) + 1
+    
+    # SAVE THE STEPS IN MEMORY
     active_sessions[session_id] = {
         "user_id": req.user_id,
         "recipe": req.recipe_title,
-        "current_step": 1,
+        "steps": req.steps,  # <--- NEW: Store the real AI steps here
+        "current_step_index": 0,
         "start_time": datetime.utcnow()
     }
+    
+    first_instruction = req.steps[0] if req.steps else "Ready to cook!"
+    
     return {
         "session_id": session_id, 
-        "message": f"Session started for {req.recipe_title}",
-        "audio_intro": "Let's get cooking! Wash your hands first." 
+        "message": first_instruction,
+        "audio_intro": f"Starting {req.recipe_title}. {first_instruction}" 
     }
 
-@app.post("/mentor/next-step/{session_id}")
-def next_step(session_id: int):
-    """Advances to the next instruction in the loop."""
-    if session_id not in active_sessions: raise HTTPException(status_code=404)
-    active_sessions[session_id]["current_step"] += 1
-    step_num = active_sessions[session_id]["current_step"]
-    return {"session_id": session_id, "step": step_num, "instruction": "Next step...", "timer": 300}
+@app.post("/mentor/chat")
+def chat_with_mentor(
+    user_id: int = Body(...),
+    message: str = Body(...),
+    # We need session_id to know WHICH recipe we are cooking
+    # For prototype simplicity, we'll just find the user's active session
+    audio_url: Optional[str] = Body(None)
+):
+    # Find the active session for this user
+    session = None
+    for s_id, data in active_sessions.items():
+        if data["user_id"] == user_id:
+            session = data
+            break
+            
+    if not session:
+        return {"reply": "You don't have an active cooking session. Start one first!"}
 
-@app.post("/mentor/substitute")
-def get_substitute(user_id: int = Body(...), ingredient: str = Body(...), recipe: str = Body(...)):
-    """Answers: 'I don't have X'. Suggests alternatives."""
-    return ai_chef.get_substitute_suggestion(ingredient, recipe)
+    msg = message.lower()
+    steps = session["steps"]
+    idx = session["current_step_index"]
+
+    if "next" in msg or "done" in msg:
+        if idx < len(steps) - 1:
+            session["current_step_index"] += 1
+            reply = steps[session["current_step_index"]]
+        else:
+            reply = "You have finished all the steps! Bon Appetit."
+            
+    elif "repeat" in msg or "what" in msg:
+        reply = steps[idx]
+        
+    elif "previous" in msg or "back" in msg:
+        if idx > 0:
+            session["current_step_index"] -= 1
+            reply = steps[session["current_step_index"]]
+        else:
+            reply = "We are at the very beginning."
+            
+    else:
+        reply = f"I'm listening. The current step is: {steps[idx]}"
+
+    return {"reply": reply}
+# --- PASTE THIS INTO main.py (Section 4) ---
+
+@app.post("/mentor/chat")
+def chat_with_mentor(
+    user_id: int = Body(...),
+    message: str = Body(...),
+    audio_url: Optional[str] = Body(None)
+):
+    """
+    Real-time Chat with the AI Chef.
+    Handles questions like 'What's next?' or 'How much salt?'
+    """
+    # Simple AI Logic for the Prototype
+    response_text = "I am listening. Go on."
+    
+    msg = message.lower()
+    
+    if "next" in msg or "step" in msg:
+        response_text = "The next step is to heat the pan to medium heat and add olive oil."
+    elif "repeat" in msg:
+        response_text = "I said: Heat the pan to medium heat."
+    elif "salt" in msg:
+        response_text = "Add about 1 teaspoon of salt, or to taste."
+    elif "substitute" in msg:
+        response_text = "You can use butter instead of oil if you prefer."
+    else:
+        # Fallback to a generic AI response
+        response_text = f"That's a great question about '{message}'. Keep cooking, you're doing great!"
+
+    return {
+        "reply": response_text,
+        "audio": "" # Future: URL to MP3 file
+    }
+
+# -------------------------------------------
 
 @app.post("/mentor/guardian-check")
 async def guardian_check(session_id: int, instruction: str = Body(...), file: UploadFile = File(...)):

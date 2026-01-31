@@ -9,23 +9,26 @@ const RecipeDetailsScreen = ({ navigation, route }) => {
   const [loading, setLoading] = useState(false);
   const recipe = route.params?.recipe || {}; 
 
-  const handleStartCooking = async () => {
+const handleStartCooking = async () => {
     setLoading(true);
     try {
-      const response = await cookmateAPI.startSession(1, recipe.title || "Unknown Recipe");
+      // 1. Extract Instructions from the Recipe Object
+      // (The AI usually sends them as a list of strings)
+      const steps = recipe.instructions || ["Step 1: Prep", "Step 2: Cook"];
+
+      // 2. Send Title AND Steps to Backend
+      const response = await cookmateAPI.startSession(1, recipe.title, steps);
       
+      // 3. Navigate
       navigation.navigate('CookingMode', { 
         recipeId: 1, 
-        initialStep: response.message || "Ready to cook! Ask for the first step." 
+        initialStep: response.message 
       });
       
     } catch (error) {
-      console.error(error);
-      const msg = error.response ? JSON.stringify(error.response.data) : "Check backend.";
-      Alert.alert("Start Failed", `Backend said:\n${msg}`);
-    } finally {
-      setLoading(false);
+       // ... existing error handling ...
     }
+    // ...
   };
 
   return (

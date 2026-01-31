@@ -122,6 +122,7 @@ class DayPlanRequest(BaseModel):
 class SessionStart(BaseModel):
     user_id: int
     recipe_title: str
+    steps: List[str] = []
 
 class SessionEnd(BaseModel):
     session_id: int
