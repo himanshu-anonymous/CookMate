@@ -1,118 +1,157 @@
 import requests
 import json
+import os
 import time
 
 BASE_URL = "http://127.0.0.1:8000"
 
-def print_step(phase, message):
-    print(f"\n--- [{phase}] {message} ---")
+# --- HELPER: Create a dummy image for testing ---
+def create_dummy_image(filename="test_image.jpg"):
+    # Creates a tiny black square image to test file uploads
+    from PIL import Image
+    img = Image.new('RGB', (100, 100), color = 'red')
+    img.save(filename)
+    return filename
 
-def test_startup_sequence():
+def print_step(phase, message):
+    print(f"\n🔹 [{phase}] {message}")
+
+def test_full_system():
     # ==========================================
-    # PHASE 1: SETUP & ONBOARDING
+    # PHASE 1: USER ONBOARDING
     # ==========================================
-    print_step("PHASE 1", "User Onboarding")
-    
-    # 1. Create the User (Gym Bro)
+    print_step("PHASE 1", "Creating User Profile (Gym Bro)")
     user_payload = {
-        "username": "Judge_Demo_001",
-        "age": 25,
-        "weight": 80,
-        "height": 180,
-        "gender": "Male",
-        "persona": "gym_bro",
-        "health_goal": "Bulk",
-        "rotis_per_meal": 4,  # Should result in 2.0x multiplier
-        "cooking_skill": 6,
+        "username": f"GodMode_User_{int(time.time())}", # Unique name every time
+        "age": 24, "weight": 85, "height": 180, "gender": "Male",
+        "persona": "gym_bro", "health_goal": "Bulk",
+        "rotis_per_meal": 4, "cooking_skill": 8,
         "weekly_budget": 5000,
         "dietary_preferences": ["High Protein"],
         "medical_conditions": ["None"]
     }
     resp = requests.post(f"{BASE_URL}/users/onboard", json=user_payload)
     if resp.status_code != 200:
-        print("❌ Onboarding Failed")
+        print(f"❌ Onboarding Failed: {resp.text}")
         return
-    user_data = resp.json()
-    user_id = user_data['id']
-    print(f"✅ User Created: {user_data['username']} | Multiplier: {user_data['portion_multiplier']}x")
+    user = resp.json()
+    USER_ID = user['id']
+    print(f"✅ User Created: {user['username']} (ID: {USER_ID})")
+    print(f"   - Portion Multiplier: {user['portion_multiplier']}x")
 
-    # 2. Inventory Scan (Simulated)
-    print_step("PHASE 1", "Inventory Scan")
-    # Simulating uploading a photo of ingredients
-    #with open("assets/sample_food.jpg", "rb") as f: # Ensure you have a dummy image here or comment out
-        # For test simplicity, we will assume manual add if file upload is complex to script quickly
-    #    pass
-    
-    # Manual Add for reliability during test
-    inventory_payload = [
-        {"name": "Chicken Breast", "quantity": 1, "unit": "kg", "price_per_unit": 300},
-        {"name": "Eggs", "quantity": 12, "unit": "piece", "price_per_unit": 10},
-        {"name": "Spinach", "quantity": 2, "unit": "bunch", "price_per_unit": 20}
+    # ==========================================
+    # PHASE 2: INVENTORY (Manual + Bill Scan)
+    # ==========================================
+    print_step("PHASE 2", "Inventory Management")
+
+    # 1. Manual Add
+    manual_payload = [
+        {"name": "Chicken Breast", "quantity": 2, "unit": "kg", "price_per_unit": 300},
+        {"name": "Olive Oil", "quantity": 0.1, "unit": "liter", "price_per_unit": 500} # Low stock test
     ]
-    requests.post(f"{BASE_URL}/inventory/add?user_id={user_id}", json=inventory_payload)
-    print("✅ Inventory Logged: Chicken, Eggs, Spinach")
+    requests.post(f"{BASE_URL}/inventory/add?user_id={USER_ID}", json=manual_payload)
+    print("✅ Manual Items Added (Chicken, Olive Oil)")
+
+    # 2. Bill Scan (Mocking a file upload)
+    dummy_file = create_dummy_image()
+    try:
+        with open(dummy_file, "rb") as f:
+            files = {"file": ("grocery_bill.jpg", f, "image/jpeg")}
+            resp = requests.post(f"{BASE_URL}/inventory/scan-bill", data={"user_id": USER_ID}, files=files)
+            if resp.status_code == 200:
+                print(f"✅ Bill Scanned: {resp.json().get('status')}")
+            else:
+                print(f"⚠️ Bill Scan Skipped (Check Azure Keys): {resp.status_code}")
+    finally:
+        os.remove(dummy_file) # Clean up
+
+    # 3. Check Shopping List (Should detect Low Oil)
+    resp = requests.get(f"{BASE_URL}/inventory/shopping-list/{USER_ID}")
+    shop_list = resp.json()['shopping_list']
+    print(f"✅ Shopping List Generated: {[item['name'] for item in shop_list]}")
 
     # ==========================================
-    # PHASE 2: DECISION & PLANNING
+    # PHASE 3: RECIPE GENERATION
     # ==========================================
-    print_step("PHASE 2", "Meal Planning")
+    print_step("PHASE 3", "AI Recipe Generation")
     
-    # 3. Generate Plan
     plan_payload = {
-        "user_id": user_id,
+        "user_id": USER_ID,
         "meal_type": "Dinner",
         "effort_level": "medium"
     }
     resp = requests.post(f"{BASE_URL}/recipes/generate", json=plan_payload)
+    if resp.status_code != 200:
+        print(f"❌ Recipe Gen Failed: {resp.text}")
+        return
     recipe = resp.json()
-    print(f"✅ Recipe Generated: {recipe['title']}")
-    print(f"   - Chef Says: {recipe['chef_comment']}")
-    print(f"   - Ingredients: {len(recipe['ingredients'])} items")
+    print(f"✅ Chef Suggested: {recipe['title']}")
+    print(f"   - Comment: {recipe['chef_comment'][:50]}...")
 
     # ==========================================
-    # PHASE 3: REALTIME COOKING (The Mentor)
+    # PHASE 4: THE MENTOR (Cooking Loop)
     # ==========================================
-    print_step("PHASE 3", "Cooking Session")
-    
-    # 4. Start Session
-    session_payload = {"user_id": user_id, "recipe_title": recipe['title']}
+    print_step("PHASE 4", "Live Cooking Session")
+
+    # 1. Start
+    session_payload = {"user_id": USER_ID, "recipe_title": recipe['title']}
     resp = requests.post(f"{BASE_URL}/mentor/start", json=session_payload)
-    session_data = resp.json()
-    session_id = session_data['session_id']
-    print(f"✅ Session Started (ID: {session_id})")
-    print(f"   - Audio Intro: {session_data.get('audio_intro', 'No Audio')}")
+    session_id = resp.json()['session_id']
+    print(f"✅ Cooking Started (Session ID: {session_id})")
 
-    # 5. Simulate "Missing Ingredient" (New Feature Needed)
-    # We need to add this endpoint to main.py
-    print(f"   - [TEST] User asks: 'I don't have Spinach!'")
-    # resp = requests.post(f"{BASE_URL}/mentor/substitute", json={"ingredient": "Spinach"})
-    # print(f"   - AI Suggests: {resp.json().get('substitute')}")
+    # 2. Substitute Check
+    sub_payload = {"user_id": USER_ID, "ingredient": "Olive Oil", "recipe": recipe['title']}
+    resp = requests.post(f"{BASE_URL}/mentor/substitute", json=sub_payload)
+    print(f"✅ Substitution Asked: 'No Olive Oil?' -> AI Says: {resp.json().get('substitute')}")
 
-    # 6. Guardian Check
-    print_step("PHASE 3", "Guardian Check")
-    # We simulate sending a 'burning' image
-    # Note: Requires a real file upload, skipping for pure script unless file exists
-    print("✅ Guardian Check Simulated (See Swagger for Real Test)")
+    # 3. Guardian Vision Check
+    dummy_file = create_dummy_image()
+    try:
+        with open(dummy_file, "rb") as f:
+            files = {"file": ("pan_photo.jpg", f, "image/jpeg")}
+            resp = requests.post(
+                f"{BASE_URL}/mentor/guardian-check?session_id={session_id}", 
+                data={"instruction": "Is the chicken cooked?"}, 
+                files=files
+            )
+            print(f"✅ Guardian Vision: {resp.json().get('analysis')}")
+    finally:
+        os.remove(dummy_file)
 
     # ==========================================
-    # PHASE 4: FEEDBACK & GAMIFICATION
+    # PHASE 5: END GAME (Deduction & XP)
     # ==========================================
-    print_step("PHASE 4", "Feedback & XP")
-    
+    print_step("PHASE 5", "Ending Session & Deducting Inventory")
+
     end_payload = {
         "session_id": session_id,
         "rating": 5,
-        "leftovers": False
+        "leftovers": False,
+        "ingredients_consumed": ["1 kg Chicken Breast"] # This should trigger the math
     }
     resp = requests.post(f"{BASE_URL}/mentor/end", json=end_payload)
-    feedback = resp.json()
-    print(f"✅ Session Ended.")
-    print(f"   - New XP: {feedback.get('new_xp')}")
-    print(f"   - Badges: {feedback.get('badges_earned', [])}")
+    result = resp.json()
+    
+    print(f"✅ Session Complete!")
+    print(f"   - XP Earned: {result.get('new_xp')}")
+    print(f"   - Inventory Updates: {result.get('inventory_updates')}")
+    print(f"   - Badges: {result.get('badges_earned')}")
+
+    # Final Inventory Check
+    final_inv = requests.get(f"{BASE_URL}/inventory/{USER_ID}").json()
+    chicken = next((i for i in final_inv if i['name'] == "Chicken Breast"), None)
+    print(f"   - Chicken Left: {chicken['quantity']} {chicken['unit']} (Should be ~1.0 if started with 2.0)")
 
 if __name__ == "__main__":
     try:
-        test_startup_sequence()
+        # Check if Pillow is installed for image creation
+        try:
+            import PIL
+        except ImportError:
+            print("⚠️ Installing Pillow for test image creation...")
+            os.system("pip install pillow")
+            
+        test_full_system()
     except Exception as e:
-        print(f"❌ Test Failed: {e}")
-        print("Make sure server is running: uvicorn main:app --reload")
+        print(f"\n❌ CRITICAL FAILURE: {e}")
+        print("Ensure server is running: 'uvicorn main:app --reload'")
