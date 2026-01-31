@@ -1,0 +1,7 @@
+# .gitignore (for backend folder)
+.env
+.venv/
+__pycache__/
+*.db
+*.sqlite3
+.DS_Store

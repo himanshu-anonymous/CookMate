@@ -1,24 +1,18 @@
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Body
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from dotenv import load_dotenv
-from datetime import datetime, timedelta 
+from typing import List, Dict
 import os
-import json
+from datetime import datetime, timedelta
+
 import models, schemas
-from database import SessionLocal, engine
+from database import SessionLocal, engine, get_db
 from services import ai_chef
 
-# --- 1. SETUP & CONFIGURATION ---
-load_dotenv()
-
-# Initialize Database
 models.Base.metadata.create_all(bind=engine)
 
-app = FastAPI()
+app = FastAPI(title="CookMate Lifestyle OS", version="6.0")
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,207 +21,155 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Database Dependency
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+active_sessions: Dict[int, Dict] = {}
 
-#  2. CORE ENDPOINTS (User & Inventory) 
-
-@app.post("/users/", response_model=schemas.User)
-def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    db_user = db.query(models.User).filter(models.User.username == user.username).first()
-    if db_user: return db_user
-    new_user = models.User(
-        username=user.username,
-        persona=user.persona,
-        preferences=user.preferences,
-        dietary_goal=user.dietary_goal,
-        allergies=user.allergies,
-        current_effort_level=user.current_effort_level
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return new_user
-
-@app.post("/inventory/{user_id}/bulk-add")
-def add_inventory(user_id: int, items: list[schemas.InventoryItemCreate], db: Session = Depends(get_db)):
-    for item in items:
-        # Check if item exists to avoid duplicates
-        existing = db.query(models.InventoryItem).filter(
-            models.InventoryItem.user_id == user_id, 
-            models.InventoryItem.name == item.name
-        ).first()
-        
-        if not existing:
-            db_item = models.InventoryItem(**item.dict(), user_id=user_id)
-            db.add(db_item)
-    db.commit()
-    return {"status": "success"}
-
-@app.get("/inventory/{user_id}", response_model=list[schemas.InventoryItem])
-def get_inventory(user_id: int, db: Session = Depends(get_db)):
-    return db.query(models.InventoryItem).filter(models.InventoryItem.user_id == user_id).all()
-
-#  NEW: VISUAL INPUT ENDPOINT 
-@app.post("/inventory/analyze-image")
-def analyze_inventory_image(request: schemas.ImageAnalysisRequest):
-    """
-    Frontend sends a base64 photo of the fridge.
-    AI returns a list of detected ingredients.
-    """
-    print(" Analyzing Pantry Image...")
-    # Calls the vision function in ai_chef.py
-    detected_items = ai_chef.analyze_pantry_image(request.image_base64)
-    return {"detected_items": detected_items}
-
-
-#  3. INTELLIGENT ENDPOINTS (Recipe & Search) 
-
-@app.post("/generate-recipe/")
-def generate_recipe(request: schemas.RecipeRequest, db: Session = Depends(get_db)):
-    # 1. Fetch User Data
-    user = db.query(models.User).filter(models.User.id == request.user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-        
-    pantry_objs = user.inventory
-    pantry_names = [i.name for i in pantry_objs]
+# --- 1. USER ---
+@app.post("/users/onboard", response_model=schemas.UserResponse)
+def onboard_user(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
+    # (Previous Onboarding Logic)
+    multiplier = user_data.rotis_per_meal / 2.0
+    if multiplier < 0.5: multiplier = 0.5
     
-    # 2. SHELF LIFE LOGIC: Find expiring items
-    # We look for items expiring within the next 3 days
-    now = datetime.utcnow()
-    limit = now + timedelta(days=3)
+    user = models.UserDB(**user_data.dict(exclude={"rotis_per_meal"}), rotis_per_meal=user_data.rotis_per_meal, portion_multiplier=multiplier)
+    db.add(user)
+    db.commit()
+    return user
+
+# --- 2. INTELLIGENT INVENTORY ---
+
+@app.post("/inventory/scan-bill")
+async def scan_bill(user_id: int = Body(...), file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """NEW: Scans a grocery bill and auto-populates inventory with Expiry Dates."""
+    image_bytes = await file.read()
     
-    expiring_soon = []
-    for item in pantry_objs:
-        if item.expiry_date and item.expiry_date <= limit:
-            expiring_soon.append(item.name)
-            
-    if expiring_soon:
-        print(f"⚠️ PRIORITY: Using expiring items: {expiring_soon}")
-
-    # 3. Determine Effort Level
-    final_effort = request.effort_level if request.effort_level else user.current_effort_level
-    print(f"🍳 Chef ({user.persona}) making {request.meal_type} with {final_effort} effort...")
-
-    # 4. Call AI Logic (Updated with expiring_items)
-    try:
-        recipe_data = ai_chef.ask_chef_json(
-            ingredients=pantry_names,
-            expiring_items=expiring_soon, # <--- Passing the expiring items
-            preferences=user.preferences,
-            dietary_goal=user.dietary_goal,
-            allergies=user.allergies,
-            meal_type=request.meal_type,
-            portion_multiplier=user.portion_multiplier,
-            effort_level=final_effort,
-            persona=user.persona.value
+    # 1. AI Parses Bill
+    parsed_items = ai_chef.parse_grocery_bill(image_bytes)
+    
+    added_items = []
+    for item in parsed_items:
+        # Calculate Expiry
+        expiry = datetime.utcnow() + timedelta(days=item.get("expiry_days", 7))
+        
+        # Add to DB
+        db_item = models.InventoryDB(
+            user_id=user_id,
+            name=item["name"],
+            quantity=item["quantity"],
+            unit=item["unit"],
+            price_per_unit=item.get("price", 0.0),
+            category=item.get("category", "General"),
+            expiry_date=expiry
         )
-
-        if recipe_data and "dish_name" in recipe_data:
-            print(" Recipe Generated Successfully")
-            return recipe_data
-        else:
-            raise ValueError("Empty response from AI Chef")
-
-    except Exception as e:
-        print(f" AI Failed: {e}")
-        # Fallback
-        return {
-            "dish_name": "Emergency Pantry Pasta",
-            "description": "AI was unreachable.",
-            "ingredients": ["Pasta", "Oil"],
-            "steps": [{"step_number": 1, "instruction": "Boil pasta.", "duration_seconds": 600}],
-            "total_time_minutes": 15,
-            "effort_score": 1.0
-        }
-
-# --- NEW: SMART SEARCH ENDPOINT ---
-@app.post("/recipes/search", response_model=list[schemas.SearchResult])
-def search_recipes(request: schemas.SearchRequest, db: Session = Depends(get_db)):
-    """
-    Search for recipes (e.g. 'Sweet') ranked by inventory match.
-    """
-    user = db.query(models.User).filter(models.User.id == request.user_id).first()
-    pantry = [i.name for i in user.inventory]
+        db.add(db_item)
+        added_items.append(db_item)
     
-    print(f"🔍 Searching for '{request.query}' in pantry...")
-    results = ai_chef.search_recipes_smart(request.query, pantry)
-    return results
+    db.commit()
+    return {"status": "Success", "items_added": len(added_items), "details": parsed_items}
 
-# --- NEW: RATINGS (Data Collection) ---
-@app.post("/recipes/rate")
-def rate_meal(request: schemas.RateMealRequest, db: Session = Depends(get_db)):
-    """
-    User rates a meal. Used for Collaborative Filtering logic later.
-    """
-    print(f" User {request.user_id} rated '{request.dish_name}' {request.rating}/5")
-    # Logic to save rating to DB would go here
-    return {"status": "recorded"}
-
-
-@app.post("/generate-day-plan/")
-def generate_day_plan(request: schemas.DayPlanRequest, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.id == request.user_id).first()
-    pantry = [i.name for i in user.inventory]
+@app.put("/inventory/{item_id}")
+def update_inventory_item(item_id: int, update: schemas.InventoryCreate, db: Session = Depends(get_db)):
+    """NEW: Edit inventory (User fixes incorrect scan)."""
+    item = db.query(models.InventoryDB).filter(models.InventoryDB.id == item_id).first()
+    if not item: raise HTTPException(status_code=404)
     
-    print(f"📅 Generating Day Plan via AI Chef...")
+    item.name = update.name
+    item.quantity = update.quantity
+    item.expiry_date = update.expiry_date
+    db.commit()
+    return {"status": "Updated"}
 
-    plan_data = ai_chef.generate_daily_plan(
-        ingredients=pantry,
-        preferences=request.diet_preference,
-        dietary_goal=user.dietary_goal
+@app.get("/inventory/shopping-list/{user_id}")
+def generate_shopping_list(user_id: int, db: Session = Depends(get_db)):
+    """NEW: Suggests items to buy based on low stock or habits."""
+    # Simple logic: If quantity < 1, add to list
+    low_stock = db.query(models.InventoryDB).filter(
+        models.InventoryDB.user_id == user_id, 
+        models.InventoryDB.quantity < 1.0,
+        models.InventoryDB.is_exhausted == False
+    ).all()
+    
+    return {
+        "shopping_list": [
+            {"name": i.name, "suggested_qty": 1, "reason": "Running Low"} for i in low_stock
+        ]
+    }
+
+# --- 3. COOKING & DEDUCTION ---
+
+@app.post("/recipes/generate")
+def generate_recipe(req: schemas.RecipeRequest, db: Session = Depends(get_db)):
+    # (Same as before)
+    user = db.query(models.UserDB).filter(models.UserDB.id == req.user_id).first()
+    pantry = [i.name for i in user.inventory if not i.is_exhausted]
+    
+    # AI Generation
+    recipe = ai_chef.ask_chef_json(
+        pantry, [], user.dietary_preferences, user.health_goal, user.allergies, 
+        req.meal_type, user.portion_multiplier, req.effort_level, user.persona
     )
-    
-    return plan_data
-
-# --- 4. COOKING MENTOR ---
-
-sessions = {}
+    return recipe
 
 @app.post("/mentor/start")
-def start_session(req: schemas.SessionStartRequest):
-    session_id = len(sessions) + 1
-    sessions[session_id] = {"recipe": req.recipe_data, "step_index": 0}
+def start_session(req: schemas.SessionStart, db: Session = Depends(get_db)):
+    # Need to fetch the recipe ingredients to track them for deduction later
+    # For now, we assume the frontend passes the recipe back, or we regenerate/fetch it
+    # We will store a placeholder for now
     
-    if not req.recipe_data.steps:
-        first_step = schemas.CookingStep(step_number=1, instruction="Prepare ingredients", duration_seconds=60, heat_level="none")
-    else:
-        first_step = req.recipe_data.steps[0]
-
-    return {
-        "session_id": session_id,
-        "step_number": 1,
-        "instruction": first_step.instruction,
-        "timer_seconds": first_step.duration_seconds,
-        "voice_response_text": "Let's start cooking.",
-        "all_step_timers": [s.duration_seconds for s in req.recipe_data.steps]
+    session_id = len(active_sessions) + 1
+    active_sessions[session_id] = {
+        "user_id": req.user_id,
+        "recipe": req.recipe_title,
+        # In a real app, we would store the specific ingredients list here
+        "ingredients_used": ["Placeholder: Frontend should send ingredients on End"], 
+        "start_time": datetime.utcnow()
     }
+    return {"session_id": session_id, "message": "Session Started"}
 
-@app.post("/mentor/next-step/{session_id}")
-def next_step(session_id: int):
-    if session_id not in sessions: raise HTTPException(status_code=404)
-    sess = sessions[session_id]
-    sess["step_index"] += 1
+@app.post("/mentor/end")
+def end_session(req: schemas.SessionEnd, 
+                ingredients_consumed: List[str] = Body(default=[]), # Frontend sends ["2 onions", "500g chicken"]
+                db: Session = Depends(get_db)):
     
-    if sess["step_index"] >= len(sess["recipe"].steps):
-        return {"session_id": session_id, "step_number": 99, "instruction": "Done!", "timer_seconds": 0}
-    
-    step = sess["recipe"].steps[sess["step_index"]]
-    return {
-        "session_id": session_id, 
-        "step_number": step.step_number, 
-        "instruction": step.instruction, 
-        "timer_seconds": step.duration_seconds
-    }
-
-@app.post("/mentor/voice-interaction/{session_id}")
-async def voice_interaction(session_id: int, file: UploadFile = File(...)):
-    if os.path.exists("assets/sample_audio.mp3"):
-         return FileResponse("assets/sample_audio.mp3", media_type="audio/mpeg", filename="response.mp3")
-    return {"status": "success"}
+    if req.session_id in active_sessions:
+        data = active_sessions.pop(req.session_id)
+        user = db.query(models.UserDB).filter(models.UserDB.id == data["user_id"]).first()
+        
+        # 1. INVENTORY DEDUCTION LOGIC
+        if ingredients_consumed:
+            # Get current inventory as structured list for the AI
+            current_inv = [{"id": i.id, "name": i.name, "qty": i.quantity} for i in user.inventory]
+            
+            # AI decides what to subtract
+            deductions = ai_chef.calculate_deductions(ingredients_consumed, current_inv)
+            
+            for d in deductions:
+                item = db.query(models.InventoryDB).filter(models.InventoryDB.id == d["inventory_id"]).first()
+                if item:
+                    item.quantity -= d["decrement_amount"]
+                    if item.quantity <= 0:
+                        item.quantity = 0
+                        item.is_exhausted = True
+            
+        # 2. SAVE SESSION & XP
+        db_session = models.CookingSessionDB(
+            user_id=data["user_id"], 
+            recipe_title=data["recipe"],
+            start_time=data["start_time"], 
+            end_time=datetime.utcnow(),
+            rating=req.rating
+        )
+        user.xp_points += 10
+        db.add(db_session)
+        db.commit()
+        
+        # 3. CHECK FOR REORDER
+        # If we exhausted items, prompt user
+        exhausted_items = [i.name for i in user.inventory if i.is_exhausted]
+        
+        return {
+            "status": "Completed", 
+            "inventory_updates": f"Updated {len(deductions) if ingredients_consumed else 0} items.",
+            "reorder_suggestions": exhausted_items
+        }
+        
+    return {"error": "Session Not Found"}

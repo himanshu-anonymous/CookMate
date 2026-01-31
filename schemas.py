@@ -1,130 +1,128 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from models import UserPersona 
+from enum import Enum
 
-# --- 1. INVENTORY & EXPIRY ---
-class InventoryItemBase(BaseModel):
-    name: str
-    quantity: float
-    unit: str
-    expiry_date: Optional[datetime] = None
+# --- ENUMS ---
+class UserPersona(str, Enum):
+    HOSTELER = "hosteler"
+    INDIAN_MOM = "indian_mom"
+    GYM_BRO = "gym_bro"
+    MASTER_CHEF = "master_chef"
 
-class InventoryItemCreate(InventoryItemBase):
-    pass
-
-class InventoryItem(InventoryItemBase):
-    id: int
-    user_id: int
-    class Config:
-        from_attributes = True
-
-class ExpiryAlert(BaseModel):
-    item_name: str
-    days_remaining: int
-    status: str 
-    
-class ImageAnalysisRequest(BaseModel):
-    image_base64: str  # Frontend sends image as Base64 string
-
-#  2. USER & PROFILE 
+# --- 1. USER & ONBOARDING ---
 class UserBase(BaseModel):
     username: str
-    preferences: str = "None"
-    dietary_goal: str = "Balanced"
-    allergies: str = "None"
+    age: int
+    weight: float
+    height: float
+    gender: str
     persona: UserPersona = UserPersona.HOSTELER
-    current_effort_level: str = "normal"
-    planning_horizon: str = "daily"
+    
+    # Health & Preferences
+    health_goal: str = "Maintain"
+    rotis_per_meal: int = 2
+    cooking_skill: int = 5
+    
+    medical_conditions: List[str] = [] # New
+    allergies: List[str] = []
+    dietary_preferences: List[str] = []
+    
+    spice_tolerance: str = "Medium" # New
+    fav_cuisine: List[str] = [] # New
+    weekly_budget: float = 0.0 # New
 
 class UserCreate(UserBase):
     pass
 
-class User(UserBase):
+class BadgeResponse(BaseModel):
+    badge_name: str
+    description: str
+    earned_at: datetime
+
+class UserResponse(UserBase):
     id: int
     portion_multiplier: float
-    streak_count: int
+    xp_points: int
+    current_streak: int
+    badges: List[BadgeResponse] = [] # New
+    
     class Config:
         from_attributes = True
 
-# 3. RECIPES & SMART SEARCH 
+# --- 2. INVENTORY ---
+class InventoryCreate(BaseModel):
+    name: str
+    quantity: float
+    unit: str # Dozen, Litre, etc.
+    category: str = "General"
+    price_per_unit: float = 0.0 # New
+    expiry_date: Optional[datetime] = None
+
+class InventoryResponse(InventoryCreate):
+    id: int
+    is_exhausted: bool
+    
+    class Config:
+        from_attributes = True
+
+# --- 3. RECIPE ENGINE ---
 class RecipeRequest(BaseModel):
     user_id: int
-    meal_type: str = "dinner"
-    effort_level: Optional[str] = "normal"
+    meal_type: str 
+    effort_level: str 
+    craving: Optional[str] = None
 
-# Smart Search Schema
+class CookingStep(BaseModel):
+    step_number: int
+    instruction: str
+    duration_seconds: int = 60
+    requires_visual_check: bool = False 
+
+class RecipeResponse(BaseModel):
+    id: Optional[int] = None
+    title: str
+    ingredients: List[Dict[str, Any]]
+    steps: List[CookingStep]
+    macros: Dict[str, float]
+    chef_comment: str 
+    effort_level: str
+    image_prompt: Optional[str] = None
+
+# --- 4. REAL-TIME SESSION ---
+class SessionStart(BaseModel):
+    user_id: int
+    recipe_title: str
+
+class InteractionRequest(BaseModel):
+    session_id: int
+    input_type: str 
+    content: Optional[str] = None 
+    image_base64: Optional[str] = None 
+
+class InteractionResponse(BaseModel):
+    response_text: str 
+    audio_base64: Optional[str] = None 
+    action: Optional[str] = None 
+
+class SessionEnd(BaseModel):
+    session_id: int
+    rating: int
+    leftovers: bool
+    
 class SearchRequest(BaseModel):
     user_id: int
     query: str
 
 class SearchResult(BaseModel):
-    dish_name: str
+    title: str
     match_score: int
-    missing_ingredients: List[str]
-    effort_level: str
-
-# NEW: Collaborative Filtering (Ratings)
+    
 class RateMealRequest(BaseModel):
     user_id: int
     dish_name: str
     rating: int
-    tags: List[str] = []
 
-class CookingStep(BaseModel):
-    step_number: int
-    instruction: str
-    duration_seconds: int = 60 
-    heat_level: str = "medium"
-    visual_cue: Optional[str] = None
-
-class StructuredRecipe(BaseModel):
-    dish_name: str
-    description: str = "No description provided."
-    ingredients: List[str] = []
-    # NEW: AI will now return these fields for inventory management
-    missing_ingredients_alert: List[str] = [] 
-    substitutions: Dict[str, str] = {}
-    
-    equipment: List[str] = []
-    steps: List[CookingStep]
-    total_time_minutes: int = 15
-    macros_estimate: Dict[str, str] = {}
-    
-    effort_score: float = 5.0
-    prep_time_minutes: int = 5
-    cleanup_score: str = "medium"
-
-# --- 4. SAVED RECIPES ---
-class SavedRecipeCreate(BaseModel):
-    dish_name: str
-    recipe_json: Dict[str, Any]
-    effort_score: float = 5.0
-    prep_time_minutes: int = 15
-    cleanup_score: str = "medium"
-
-class SavedRecipe(SavedRecipeCreate):
-    id: int
-    created_at: datetime
-    class Config:
-        from_attributes = True
-
-# 5. COOKING MENTOR 
-class SessionStartRequest(BaseModel):
-    user_id: int
-    recipe_data: StructuredRecipe 
-
-class MentorStepResponse(BaseModel):
-    session_id: int
-    step_number: int
-    total_steps: int
-    instruction: str
-    timer_seconds: int
-    visual_cue: Optional[str] = None
-    voice_response_text: str
-    all_step_timers: List[int] = []
-
-#  6. DAY PLAN 
 class DayPlanRequest(BaseModel):
     user_id: int
-    diet_preference: str = "non-veg"
+    diet_preference: List[str]

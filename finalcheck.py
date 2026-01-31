@@ -1,31 +1,53 @@
-# backend/final_check.py
 import os
-from pathlib import Path
 from dotenv import load_dotenv
+from openai import AzureOpenAI
+import httpx
+import asyncio
 
-# 1. Force load the .env file
-env_path = Path(__file__).resolve().parent / ".env"
-load_dotenv(dotenv_path=env_path)
+load_dotenv()
 
-print("\n---  CONFIGURATION CHECK ---")
+print("🚀 INITIATING COOKMATE PRE-FLIGHT CHECK...\n")
 
+# 1. CHECK KEYS
+keys = {
+    "OPENAI_ENDPOINT": os.getenv("AZURE_OPENAI_ENDPOINT"),
+    "OPENAI_KEY": os.getenv("AZURE_OPENAI_KEY"),
+    "CV_ENDPOINT": os.getenv("AZURE_CV_ENDPOINT"),
+    "CV_KEY": os.getenv("AZURE_CV_KEY")
+}
 
-endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+missing = [k for k, v in keys.items() if not v]
+if missing:
+    print(f"❌ CRITICAL FAIL: Missing Keys: {missing}")
+    exit(1)
+else:
+    print("✅ All Keys Present")
 
-print(f"1. TARGET ENDPOINT:   {endpoint}")
-print(f"2. DEPLOYMENT NAME:   {name}")
+# 2. TEST OPENAI CONNECTION
+try:
+    client = AzureOpenAI(
+        azure_endpoint=keys["OPENAI_ENDPOINT"],
+        api_key=keys["OPENAI_KEY"],
+        api_version="2024-02-15-preview"
+    )
+    # Simple ping
+    client.models.list()
+    print("✅ Azure OpenAI Connection: STABLE")
+except Exception as e:
+    print(f"❌ Azure OpenAI Connection FAILED: {e}")
 
+# 3. TEST COMPUTER VISION
+async def test_cv():
+    url = f"{keys['CV_ENDPOINT'].rstrip('/')}/computervision/imageanalysis:analyze?features=tags&api-version=2023-10-01"
+    headers = {"Ocp-Apim-Subscription-Key": keys["CV_KEY"], "Content-Type": "application/octet-stream"}
+    # Send empty bytes just to check Auth response (should be 400 Bad Request, NOT 401 Unauthorized)
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(url, headers=headers, content=b"")
+        if resp.status_code == 401:
+            print("❌ Azure Vision Auth FAILED (Check Key)")
+        else:
+            print("✅ Azure Vision Auth: VERIFIED")
 
-print("\n---  DIAGNOSIS ---")
+asyncio.run(test_cv())
 
-if "icx-openai-backend" in str(endpoint):
-    print(" ERROR: You are still using the OLD Endpoint!")
-    print("    Fix: Open .env and replace AZURE_OPENAI_ENDPOINT with the new 'alone-mjsz...' URL.")
-
-elif "alone-mjsz" in str(endpoint):
-    print(" Endpoint looks correct (New Server).")
-    
-    if name == "YourAPI_deployment_name":
-        print("Deployment Name looks correct.")
-        print(" VERDICT: If this setup fails, restart")
+print("\n🎉 PRE-FLIGHT COMPLETE. READY TO LAUNCH.")

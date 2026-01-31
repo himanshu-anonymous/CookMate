@@ -1,52 +1,52 @@
-# backend/check_deployments.py
 import os
-import httpx
-import asyncio
 from dotenv import load_dotenv
-from pathlib import Path
+from openai import AzureOpenAI
 
-# FIX: Look in the CURRENT folder (backend), not the parent ---
-current_folder = Path(__file__).resolve().parent
-env_path = current_folder / ".env"
+# Load the environment variables
+load_dotenv()
 
-print(f" Looking for .env at: {env_path}")
-load_dotenv(dotenv_path=env_path)
+print("\n--- AZURE DIAGNOSTIC TOOL ---")
 
-ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-API_KEY = os.getenv("AZURE_OPENAI_KEY")
+# 1. Get Credentials
+endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+key = os.getenv("AZURE_OPENAI_KEY")
+api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
 
-async def list_deployments():
-    if not ENDPOINT or not API_KEY:
-        print(" Error: Still can't find keys. Is the file named '.env' exactly?")
-        return
+print(f"ENDPOINT: {endpoint}")
+print(f"KEY: {key[:5]}... (Masked)")
 
-    # Clean the endpoint url
-    base_url = ENDPOINT.rstrip("/")
-    url = f"{base_url}/openai/deployments?api-version=2023-05-15"
+if not endpoint or not key:
+    print("❌ ERROR: Endpoint or Key is missing in .env")
+    exit()
+
+# 2. Try to Connect
+client = AzureOpenAI(
+    azure_endpoint=endpoint,
+    api_key=key,
+    api_version=api_version
+)
+
+print("\n--- ATTEMPTING TO LIST DEPLOYMENTS ---")
+try:
+    # This trick asks Azure to list the models you have access to
+    # It will usually show the base models, but if the connection works, 
+    # it means your Credentials are correct.
+    response = client.models.list()
     
-    headers = {"api-key": API_KEY}
-    
-    print(f"Connecting to Azure: {base_url}...")
-    
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers)
+    print("✅ CONNECTION SUCCESSFUL!")
+    print("Available Models/Deployments:")
+    for model in response:
+        print(f" - ID: {model.id}")
         
-        if response.status_code == 200:
-            data = response.json()
-            print("\n SUCCESS! Found these Deployments:")
-            print("-" * 40)
-            if len(data['data']) == 0:
-                print("  NO DEPLOYMENTS FOUND.")
-                print("ACTION: Go to Azure Studio -> Deployments -> Create New.")
-                print("Select Model: gpt-35-turbo")
-            else:
-                for item in data['data']:
-                    print(f" DEPLOYMENT NAME:  {item['id']}") # <--- THIS IS THE NAME YOU NEED
-                    print(f"   Model: {item['model']}")
-                    print("-" * 40)
-        else:
-            print(f"\n FAILED. Status: {response.status_code}")
-            print(f"Message: {response.text}")
+    print("\n-----------------------------------")
+    print("INSTRUCTIONS:")
+    print("1. Look at the list above.")
+    print("2. Pick the exact ID that looks like your deployment (e.g., 'gpt-4o' or 'cookmate-gpt').")
+    print("3. Put THAT exact name in your .env file as AZURE_OPENAI_DEPLOYMENT_NAME.")
 
-if __name__ == "__main__":
-    asyncio.run(list_deployments())
+except Exception as e:
+    print(f"❌ CONNECTION FAILED: {e}")
+    print("\nPOSSIBLE CAUSES:")
+    print("1. Wrong Endpoint (Check if it ends in .com/)")
+    print("2. Wrong Key (Did you regenerate it?)")
+    print("3. Wrong Resource (Are you using the Key for Vision instead of OpenAI?)")
