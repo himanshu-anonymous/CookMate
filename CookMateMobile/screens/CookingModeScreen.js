@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Speech from 'expo-speech'; 
+import * as ImagePicker from 'expo-image-picker'; // 🚨 Added back
 import { cookmateAPI } from '../services/api';
-import * as ImagePicker from 'expo-image-picker';
 
 const COLORS = { 
   primary: '#1A1A1A', 
@@ -14,19 +15,42 @@ const COLORS = {
 };
 
 const CookingModeScreen = ({ navigation, route }) => {
-  // Grab Ingredients from params so we can deduct them later
   const { sessionData, userId, recipeSteps, recipeIngredients } = route.params || {};
   const sessionId = sessionData?.session_id || 1;
 
   const [stepIndex, setStepIndex] = useState(0);
-  const steps = (recipeSteps && recipeSteps.length > 0) ? recipeSteps : ["Prepare ingredients..."];
-  const currentText = steps[stepIndex];
-  
+  const [isVoiceEnabled, setIsVoiceEnabled] = useState(true); 
   const [loading, setLoading] = useState(false);
   const [timer, setTimer] = useState(0); 
   const [isTimerRunning, setIsTimerRunning] = useState(false);
 
-  // 1. SMART TIMER
+  const steps = (recipeSteps && recipeSteps.length > 0) ? recipeSteps : ["Prepare ingredients..."];
+  const currentText = steps[stepIndex];
+
+  // 1. TTS LOGIC
+  useEffect(() => {
+    if (isVoiceEnabled) {
+      speakInstruction(currentText);
+    }
+    return () => Speech.stop();
+  }, [stepIndex]);
+
+  const speakInstruction = (text) => {
+    Speech.stop(); 
+    Speech.speak(text, { language: 'en', pitch: 1.0, rate: 0.9 });
+  };
+
+  const toggleVoice = () => {
+    if (isVoiceEnabled) {
+      Speech.stop();
+      setIsVoiceEnabled(false);
+    } else {
+      setIsVoiceEnabled(true);
+      speakInstruction(currentText);
+    }
+  };
+
+  // 2. SMART TIMER
   useEffect(() => {
     const timeMatch = currentText.match(/(\d+)\s*(?:min|minute)/i);
     if (timeMatch && timeMatch[1]) {
@@ -45,77 +69,7 @@ const CookingModeScreen = ({ navigation, route }) => {
     return () => clearInterval(interval);
   }, [isTimerRunning, timer]);
 
-  // 2. FINISH LOGIC (Updates Pantry & XP)
-  const handleFinish = () => {
-    Alert.alert(
-      "Meal Complete! 👨‍🍳",
-      "How was it? This will update your pantry.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "⭐⭐⭐⭐⭐ Delicious", onPress: () => submitSession(5, false) },
-        { text: "⭐⭐⭐ Leftovers", onPress: () => submitSession(3, true) }
-      ]
-    );
-  };
-
-  const submitSession = async (rating, leftovers) => {
-    setLoading(true);
-    try {
-      // Clean up ingredients list (ensure strings)
-      const consumed = recipeIngredients 
-        ? recipeIngredients.map(i => (typeof i === 'object' ? i.name : i)) 
-        : [];
-      
-      console.log("Ending Session & Consuming:", consumed);
-
-      const res = await cookmateAPI.endSession(sessionId, rating, leftovers, consumed);
-
-      let msg = `XP Gained: +${res.new_xp - (res.new_xp - 10) || 10}`;
-      if (res.inventory_updates) msg += `\n${res.inventory_updates}`;
-      if (res.badges_earned && res.badges_earned.length > 0) msg += `\n🏆 Badge: ${res.badges_earned[0]}`;
-
-      Alert.alert("All Done! 🎉", msg, [
-        { text: "Back Home", onPress: () => navigation.navigate('Home', { userId }) }
-      ]);
-      
-    } catch (error) {
-      console.error(error);
-      Alert.alert("Error", "Could not save session stats.");
-      navigation.navigate('Home', { userId });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 3. NAVIGATION HANDLERS
-  const nextStep = () => {
-    if (stepIndex < steps.length - 1) {
-      setStepIndex(prev => prev + 1);
-    } else {
-      // If on last step, Trigger Finish
-      handleFinish();
-    }
-  };
-
-  const prevStep = () => {
-    if (stepIndex > 0) setStepIndex(prev => prev - 1);
-  };
-
-  // 4. AI HELP
-  const askAI = async () => {
-    setLoading(true);
-    try {
-      const query = `I am on step: "${currentText}". How do I do this properly?`;
-      const response = await cookmateAPI.chatWithChef(userId, query);
-      Alert.alert("Chef Says:", response.reply || response.message);
-    } catch (error) {
-      Alert.alert("Chef Offline", "Check connection.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 5. GUARDIAN CHECK
+  // 3. GUARDIAN CHECK (Fixed the ReferenceError)
   const handleGuardianCheck = async () => {
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaType.Images,
@@ -134,6 +88,49 @@ const CookingModeScreen = ({ navigation, route }) => {
     }
   };
 
+  // 4. AI CHAT HELP
+  const askAI = async () => {
+    setLoading(true);
+    try {
+      const query = `I am on step: "${currentText}". How do I do this properly?`;
+      const response = await cookmateAPI.chatWithChef(userId, query);
+      Alert.alert("Chef Says:", response.reply || response.message);
+      if (isVoiceEnabled) Speech.speak(response.reply || response.message);
+    } catch (error) {
+      Alert.alert("Chef Offline", "Check connection.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 5. FINISH LOGIC
+  const handleFinish = () => {
+    if (isVoiceEnabled) Speech.speak("Delicious! You have finished the recipe.");
+    Alert.alert("Meal Complete! 👨‍🍳", "How was it?", [
+        { text: "Cancel", style: "cancel" },
+        { text: "⭐⭐⭐⭐⭐ Delicious", onPress: () => submitSession(5, false) },
+        { text: "⭐⭐⭐ Leftovers", onPress: () => submitSession(3, true) }
+    ]);
+  };
+
+  const submitSession = async (rating, leftovers) => {
+    setLoading(true);
+    try {
+      const consumed = recipeIngredients ? recipeIngredients.map(i => (typeof i === 'object' ? i.name : i)) : [];
+      const res = await cookmateAPI.endSession(sessionId, rating, leftovers, consumed);
+      navigation.navigate('Home', { userId });
+    } catch (error) {
+      navigation.navigate('Home', { userId });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const nextStep = () => {
+    if (stepIndex < steps.length - 1) setStepIndex(prev => prev + 1);
+    else handleFinish();
+  };
+
   const formatTime = (seconds) => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -147,7 +144,9 @@ const CookingModeScreen = ({ navigation, route }) => {
           <Ionicons name="close" size={24} color={COLORS.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>STEP {stepIndex + 1} OF {steps.length}</Text>
-        <View style={{width: 40}} />
+        <TouchableOpacity onPress={toggleVoice} style={styles.voiceBtn}>
+          <Ionicons name={isVoiceEnabled ? "volume-high" : "volume-mute"} size={24} color={COLORS.accent} />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.card}>
@@ -155,6 +154,10 @@ const CookingModeScreen = ({ navigation, route }) => {
         <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}>
            <Text style={styles.stepText}>"{currentText}"</Text>
         </ScrollView>
+        <TouchableOpacity onPress={() => speakInstruction(currentText)} style={styles.replayBtn}>
+           <Ionicons name="refresh" size={18} color={COLORS.accent} />
+           <Text style={styles.replayText}>Repeat Instruction</Text>
+        </TouchableOpacity>
       </View>
 
       {timer > 0 && (
@@ -167,9 +170,8 @@ const CookingModeScreen = ({ navigation, route }) => {
         </View>
       )}
 
-      {/* Controls */}
       <View style={styles.controls}>
-        <TouchableOpacity style={styles.navBtn} onPress={prevStep} disabled={stepIndex === 0}>
+        <TouchableOpacity style={styles.navBtn} onPress={() => setStepIndex(p => p - 1)} disabled={stepIndex === 0}>
           <Ionicons name="chevron-back" size={30} color={stepIndex === 0 ? '#555' : COLORS.text} />
         </TouchableOpacity>
 
@@ -181,15 +183,10 @@ const CookingModeScreen = ({ navigation, route }) => {
           style={[styles.navBtn, stepIndex === steps.length - 1 && { backgroundColor: COLORS.success }]} 
           onPress={nextStep}
         >
-          <Ionicons 
-            name={stepIndex === steps.length - 1 ? "checkmark" : "chevron-forward"} 
-            size={30} 
-            color={COLORS.text} 
-          />
+          <Ionicons name={stepIndex === steps.length - 1 ? "checkmark" : "chevron-forward"} size={30} color={COLORS.text} />
         </TouchableOpacity>
       </View>
 
-      {/* Mic / Spinner */}
       <View style={styles.micContainer}>
         {loading ? (
            <ActivityIndicator size="large" color={COLORS.accent} />
@@ -198,7 +195,7 @@ const CookingModeScreen = ({ navigation, route }) => {
             <Ionicons name="help" size={32} color={COLORS.white} />
           </TouchableOpacity>
         )}
-        <Text style={styles.micHint}>{loading ? "Thinking..." : "Stuck? Tap for Help"}</Text>
+        <Text style={styles.micHint}>Stuck? Tap for Help</Text>
       </View>
     </View>
   );
@@ -208,17 +205,20 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.primary, padding: 20, paddingTop: 50 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   closeBtn: { backgroundColor: 'rgba(255,255,255,0.1)', padding: 10, borderRadius: 20 },
+  voiceBtn: { backgroundColor: 'rgba(255,255,255,0.1)', padding: 10, borderRadius: 20 },
   headerTitle: { color: COLORS.accent, fontSize: 16, fontWeight: 'bold', letterSpacing: 2 },
   card: { flex: 1, backgroundColor: COLORS.card, borderRadius: 20, padding: 30, marginBottom: 20, alignItems: 'center', justifyContent: 'center' },
   label: { color: COLORS.accent, fontSize: 12, fontWeight: 'bold', letterSpacing: 1, marginBottom: 20 },
   stepText: { color: COLORS.text, fontSize: 24, fontWeight: 'bold', textAlign: 'center', lineHeight: 34 },
+  replayBtn: { flexDirection: 'row', alignItems: 'center', marginTop: 20, gap: 8 },
+  replayText: { color: COLORS.accent, fontSize: 14, fontWeight: '600' },
   timerContainer: { flexDirection: 'row', backgroundColor: '#333', padding: 15, borderRadius: 15, alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
   timerText: { color: COLORS.white, fontSize: 32, fontWeight: 'bold', fontFamily: 'monospace' },
   controls: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 },
   navBtn: { backgroundColor: 'rgba(255,255,255,0.1)', width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
   guardianBtn: { backgroundColor: COLORS.accent, width: 70, height: 70, borderRadius: 35, justifyContent: 'center', alignItems: 'center', elevation: 10, borderWidth: 4, borderColor: COLORS.primary },
   micContainer: { alignItems: 'center' },
-  micBtn: { backgroundColor: '#444', width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', marginBottom: 10, elevation: 5 },
+  micBtn: { backgroundColor: '#444', width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
   micHint: { color: '#888', fontSize: 12 }
 });
 

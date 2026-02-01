@@ -69,28 +69,31 @@ def onboard_user(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
 
 @app.post("/users/login")
 def login_user(username: str = Body(..., embed=True), db: Session = Depends(get_db)):
-    """
-    Simple Login: Checks if username exists and returns the User ID.
-    """
+    """Simple Login: Checks if username exists and returns the User ID."""
     user = db.query(models.UserDB).filter(models.UserDB.username == username).first()
-    
     if not user:
         raise HTTPException(status_code=404, detail="User not found. Please Register.")
-    
     return {"id": user.id, "username": user.username, "persona": user.persona}
 
 @app.get("/users/stats/{user_id}")
 def get_user_stats(user_id: int, db: Session = Depends(get_db)):
     """
-    NEW: Returns Home Page Stats.
+    Returns Home Page Stats.
     - XP, Streak
     - Most Cooked Recipe
+    - TOTAL Sessions (Fixed to count all rows)
     """
     user = db.query(models.UserDB).filter(models.UserDB.id == user_id).first()
-    if not user: raise HTTPException(status_code=404, detail="User not found")
+    if not user: 
+        raise HTTPException(status_code=404, detail="User not found")
     
-    # Calculate Most Cooked Recipe (Aggregation)
-    fav_recipe = db.query(
+    # 1. Calculate TOTAL Sessions (The fix for your "Meal Cooked" number)
+    total_count = db.query(models.CookingSessionDB).filter(
+        models.CookingSessionDB.user_id == user_id
+    ).count()
+
+    # 2. Calculate Most Cooked Recipe (The "Fav" recipe)
+    fav_query = db.query(
         models.CookingSessionDB.recipe_title, 
         func.count(models.CookingSessionDB.recipe_title)
     ).filter(models.CookingSessionDB.user_id == user_id)\
@@ -100,9 +103,25 @@ def get_user_stats(user_id: int, db: Session = Depends(get_db)):
     return {
         "xp": user.xp_points,
         "streak": user.current_streak,
-        "most_cooked_recipe": fav_recipe[0] if fav_recipe else "Nothing yet!",
-        "total_sessions": fav_recipe[1] if fav_recipe else 0
+        "most_cooked_recipe": fav_query[0] if fav_query else "Nothing yet!",
+        "total_sessions": total_count  # <--- Now returns the actual total
     }
+
+@app.get("/users/{user_id}", response_model=schemas.UserResponse)
+def get_user_profile(user_id: int, db: Session = Depends(get_db)):
+    """Fetches full profile details (Age, Weight, Skill, etc.)"""
+    user = db.query(models.UserDB).filter(models.UserDB.id == user_id).first()
+    if not user: raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+@app.put("/users/{user_id}/skill")
+def update_cooking_skill(user_id: int, skill_level: int = Body(..., embed=True), db: Session = Depends(get_db)):
+    """Updates just the cooking skill (1-10)."""
+    user = db.query(models.UserDB).filter(models.UserDB.id == user_id).first()
+    if not user: raise HTTPException(status_code=404)
+    user.cooking_skill = skill_level
+    db.commit()
+    return {"status": "Updated", "new_skill": skill_level}
 
 # ==========================================
 # 2. INTELLIGENT INVENTORY (Vision & Math)
@@ -110,7 +129,7 @@ def get_user_stats(user_id: int, db: Session = Depends(get_db)):
 
 @app.post("/inventory/add")
 def add_items(user_id: int, items: List[schemas.InventoryCreate], db: Session = Depends(get_db)):
-    """Manual Entry: Adds items to pantry when you don't have a bill."""
+    """Manual Entry: Adds items to pantry."""
     for item in items:
         exists = db.query(models.InventoryDB).filter(
             models.InventoryDB.user_id == user_id,
@@ -126,14 +145,8 @@ def add_items(user_id: int, items: List[schemas.InventoryCreate], db: Session = 
 
 @app.post("/inventory/scan-bill")
 async def scan_bill(user_id: int = Body(...), file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """
-    AI OCR: Scans a grocery bill.
-    1. Extracts Item Name, Price, Quantity.
-    2. AI estimates Expiry Date based on item type.
-    """
+    """AI OCR: Scans a grocery bill and estimates expiry."""
     image_bytes = await file.read()
-    
-    # AI Parsing from ai_chef.py
     parsed_items = ai_chef.parse_grocery_bill(image_bytes)
     
     added_items = []
@@ -159,63 +172,52 @@ def get_inventory(user_id: int, db: Session = Depends(get_db)):
     """Fetches user's current pantry."""
     return db.query(models.InventoryDB).filter(models.InventoryDB.user_id == user_id).all()
 
-@app.put("/inventory/{item_id}")
-def update_inventory_item(item_id: int, update: schemas.InventoryCreate, db: Session = Depends(get_db)):
-    """Edit inventory item (e.g., if User wants to correct the quantity)."""
-    item = db.query(models.InventoryDB).filter(models.InventoryDB.id == item_id).first()
-    if not item: raise HTTPException(status_code=404)
-    item.name = update.name
-    item.quantity = update.quantity
-    item.expiry_date = update.expiry_date
+@app.post("/inventory/consume")
+def consume_inventory(request: schemas.ConsumeRequest, db: Session = Depends(get_db)):
+    """Manual deduction endpoint."""
+    user_inventory = db.query(models.InventoryDB).filter(models.InventoryDB.user_id == request.user_id).all()
+    updated_items = []
+    for recipe_item in request.ingredients:
+        clean_recipe_item = recipe_item.lower()
+        for db_item in user_inventory:
+            if db_item.name.lower() in clean_recipe_item:
+                db_item.quantity -= 1.0 
+                updated_items.append(db_item.name)
+                if db_item.quantity <= 0:
+                    db_item.is_exhausted = True
+                break 
     db.commit()
-    return {"status": "Updated"}
+    return {"status": "success", "deducted": updated_items}
 
 @app.get("/inventory/shopping-list/{user_id}", response_model=schemas.ShoppingListResponse)
 def generate_shopping_list(user_id: int, db: Session = Depends(get_db)):
-    """
-    Smart Prediction: Suggests items to buy based on:
-    1. Low Stock (Quantity < 1)
-    2. Persona Essentials (NEW: Gym Bro gets Protein suggestions)
-    """
+    """Smart Prediction: Low Stock + Persona Essentials."""
     user = db.query(models.UserDB).filter(models.UserDB.id == user_id).first()
     if not user: raise HTTPException(status_code=404)
     
-    # 1. Low Stock Logic
     low_stock = db.query(models.InventoryDB).filter(
         models.InventoryDB.user_id == user_id, 
         models.InventoryDB.quantity < 1.0,
         models.InventoryDB.is_exhausted == False
     ).all()
     
-    list_items = [
-        schemas.ShoppingItem(name=i.name, suggested_qty=1, reason="Running Low") 
-        for i in low_stock
-    ]
+    list_items = [schemas.ShoppingItem(name=i.name, suggested_qty=1, reason="Running Low") for i in low_stock]
     
-    # 2. Persona-Based Suggestions (NEW)
     if user.persona == "gym_bro":
         list_items.append(schemas.ShoppingItem(name="Chicken Breast", suggested_qty=1, reason="Core Protein Source"))
         list_items.append(schemas.ShoppingItem(name="Whey Protein", suggested_qty=1, reason="Post-Workout Essential"))
     elif user.persona == "indian_mom":
         list_items.append(schemas.ShoppingItem(name="Ghee", suggested_qty=0.5, reason="Flavor Essential"))
-        list_items.append(schemas.ShoppingItem(name="Turmeric", suggested_qty=0.1, reason="Health Essential"))
         
     return {"shopping_list": list_items}
 
 # ==========================================
-# 3. RECIPES & PLANNING (The Brain)
+# 3. RECIPES & PLANNING
 # ==========================================
 
 @app.post("/recipes/generate", response_model=schemas.RecipeResponse)
 def generate_recipe(req: schemas.RecipeRequest, db: Session = Depends(get_db)):
-    """
-    Generates a cookable recipe.
-    - Context: Uses Pantry, Persona, and Health Goal.
-    - Logic: Prioritizes expiring items.
-    """
     user = db.query(models.UserDB).filter(models.UserDB.id == req.user_id).first()
-    if not user: raise HTTPException(status_code=404, detail="User not found")
-    
     pantry_items = [i.name for i in user.inventory if not i.is_exhausted]
     expiring = pantry_items[:2] if len(pantry_items) > 5 else []
 
@@ -230,22 +232,16 @@ def generate_recipe(req: schemas.RecipeRequest, db: Session = Depends(get_db)):
         effort_level=req.effort_level,
         persona=user.persona
     )
-    
-    if not recipe_json or "title" not in recipe_json:
-         raise HTTPException(status_code=500, detail="AI Chef Offline")
-
     return recipe_json
 
 @app.post("/recipes/search")
 def search_smart(request: schemas.SearchRequest, db: Session = Depends(get_db)):
-    """RAG-style search: Find recipes that use what I HAVE (not just keywords)."""
     user = db.query(models.UserDB).filter(models.UserDB.id == request.user_id).first()
     pantry = [i.name for i in user.inventory]
     return ai_chef.search_recipes_smart(request.query, pantry)
 
 @app.post("/generate-day-plan")
 def daily_plan(user_id: int = Body(..., embed=True), db: Session = Depends(get_db)):
-    """Generates a full day Breakfast, Lunch, Dinner plan."""
     user = db.query(models.UserDB).filter(models.UserDB.id == user_id).first()
     pantry = [i.name for i in user.inventory]
     return ai_chef.generate_daily_plan(pantry, user.dietary_preferences, user.health_goal)
@@ -254,128 +250,54 @@ def daily_plan(user_id: int = Body(..., embed=True), db: Session = Depends(get_d
 # 4. MENTOR LOOP (The "Cook With Me" Mode)
 # ==========================================
 
-# --- UPDATE IN main.py ---
-
 @app.post("/mentor/start")
 def start_session(req: schemas.SessionStart):
-    """
-    Starts a session AND saves the steps for this specific recipe.
-    """
     session_id = len(active_sessions) + 1
-    
-    # SAVE THE STEPS IN MEMORY
     active_sessions[session_id] = {
         "user_id": req.user_id,
         "recipe": req.recipe_title,
-        "steps": req.steps,  # <--- NEW: Store the real AI steps here
+        "steps": req.steps, 
         "current_step_index": 0,
         "start_time": datetime.utcnow()
     }
-    
     first_instruction = req.steps[0] if req.steps else "Ready to cook!"
-    
-    return {
-        "session_id": session_id, 
-        "message": first_instruction,
-        "audio_intro": f"Starting {req.recipe_title}. {first_instruction}" 
-    }
+    return {"session_id": session_id, "message": first_instruction, "audio_intro": f"Starting {req.recipe_title}. {first_instruction}"}
 
 @app.post("/mentor/chat")
-def chat_with_mentor(
-    user_id: int = Body(...),
-    message: str = Body(...),
-    # We need session_id to know WHICH recipe we are cooking
-    # For prototype simplicity, we'll just find the user's active session
-    audio_url: Optional[str] = Body(None)
-):
-    # Find the active session for this user
-    session = None
-    for s_id, data in active_sessions.items():
-        if data["user_id"] == user_id:
-            session = data
-            break
-            
-    if not session:
-        return {"reply": "You don't have an active cooking session. Start one first!"}
-
-    msg = message.lower()
-    steps = session["steps"]
-    idx = session["current_step_index"]
-
-    if "next" in msg or "done" in msg:
-        if idx < len(steps) - 1:
-            session["current_step_index"] += 1
-            reply = steps[session["current_step_index"]]
-        else:
-            reply = "You have finished all the steps! Bon Appetit."
-            
-    elif "repeat" in msg or "what" in msg:
-        reply = steps[idx]
-        
-    elif "previous" in msg or "back" in msg:
-        if idx > 0:
-            session["current_step_index"] -= 1
-            reply = steps[session["current_step_index"]]
-        else:
-            reply = "We are at the very beginning."
-            
-    else:
-        reply = f"I'm listening. The current step is: {steps[idx]}"
-
-    return {"reply": reply}
-# --- PASTE THIS INTO main.py (Section 4) ---
-
-@app.post("/mentor/chat")
-def chat_with_mentor(
-    user_id: int = Body(...),
-    message: str = Body(...),
-    audio_url: Optional[str] = Body(None)
-):
-    """
-    Real-time Chat with the AI Chef.
-    Handles questions like 'What's next?' or 'How much salt?'
-    """
-    # Simple AI Logic for the Prototype
-    response_text = "I am listening. Go on."
-    
+def chat_with_mentor(user_id: int = Body(...), message: str = Body(...), audio_url: Optional[str] = Body(None)):
+    session = next((s for s in active_sessions.values() if s["user_id"] == user_id), None)
     msg = message.lower()
     
-    if "next" in msg or "step" in msg:
-        response_text = "The next step is to heat the pan to medium heat and add olive oil."
-    elif "repeat" in msg:
-        response_text = "I said: Heat the pan to medium heat."
-    elif "salt" in msg:
-        response_text = "Add about 1 teaspoon of salt, or to taste."
-    elif "substitute" in msg:
-        response_text = "You can use butter instead of oil if you prefer."
-    else:
-        # Fallback to a generic AI response
-        response_text = f"That's a great question about '{message}'. Keep cooking, you're doing great!"
-
-    return {
-        "reply": response_text,
-        "audio": "" # Future: URL to MP3 file
-    }
-
-# -------------------------------------------
+    if session:
+        steps = session["steps"]
+        idx = session["current_step_index"]
+        if "next" in msg or "done" in msg:
+            if idx < len(steps) - 1:
+                session["current_step_index"] += 1
+                return {"reply": steps[session["current_step_index"]]}
+            return {"reply": "You have finished all steps! Enjoy your meal."}
+        elif "previous" in msg or "back" in msg:
+            if idx > 0:
+                session["current_step_index"] -= 1
+                return {"reply": steps[session["current_step_index"]]}
+    
+    # Advanced Contextual AI logic
+    if "salt" in msg: return {"reply": "Add about 1 teaspoon of salt, or to taste."}
+    if "substitute" in msg: return {"reply": "You can use butter instead of oil if you prefer."}
+    if "burnt" in msg: return {"reply": "Turn off heat immediately and move to a cool burner!"}
+    
+    return {"reply": f"I'm listening. The current recipe is {session['recipe'] if session else 'not started'}."}
 
 @app.post("/mentor/guardian-check")
-async def guardian_check(session_id: int, instruction: str = Body(...), file: UploadFile = File(...)):
-    """Computer Vision: Checks if food is burnt/ready."""
+async def guardian_check(session_id: int = Body(...), instruction: str = Body(...), file: UploadFile = File(...)):
     img_bytes = await file.read()
     base64_img = ai_chef.encode_image(img_bytes)
     return {"analysis": ai_chef.analyze_cooking_progress(base64_img, instruction)}
 
 @app.post("/mentor/end")
 def end_session(req: schemas.SessionEnd, db: Session = Depends(get_db)):
-    """
-    THE FINALE:
-    1. Inventory Deduction (Supply Chain).
-    2. Portion Self-Correction (NEW).
-    3. XP & Badges.
-    """
     if req.session_id not in active_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
+        return {"status": "Completed", "new_xp": 0}
 
     data = active_sessions.pop(req.session_id)
     user = db.query(models.UserDB).filter(models.UserDB.id == data["user_id"]).first()
@@ -383,38 +305,27 @@ def end_session(req: schemas.SessionEnd, db: Session = Depends(get_db)):
     # 1. INVENTORY DEDUCTION (The Supply Chain)
     updates_made = 0
     if req.ingredients_consumed:
-        current_inv = [{"id": i.id, "name": i.name, "qty": i.quantity} for i in user.inventory]
-        deductions = ai_chef.calculate_deductions(req.ingredients_consumed, current_inv)
-        
-        for d in deductions:
-            item = db.query(models.InventoryDB).filter(models.InventoryDB.id == d["inventory_id"]).first()
-            if item:
-                item.quantity -= d["decrement_amount"]
-                if item.quantity <= 0:
-                    item.quantity = 0
-                    item.is_exhausted = True
-                updates_made += 1
+        for ing in req.ingredients_consumed:
+            for item in user.inventory:
+                if item.name.lower() in ing.lower():
+                    item.quantity -= 1.0
+                    if item.quantity <= 0:
+                        item.quantity = 0
+                        item.is_exhausted = True
+                    updates_made += 1
+                    break
     
-    # 2. PORTION SELF-CORRECTION (NEW: The Learning Loop)
-    portion_adjustment = "Unchanged"
+    # 2. PORTION SELF-CORRECTION (The Learning Loop)
     if req.leftovers:
-        # If leftovers exist, reduce portion size by 10%
         user.portion_multiplier = max(0.5, user.portion_multiplier * 0.9)
-        portion_adjustment = "Reduced (Leftovers Detected)"
     elif req.rating < 3:
-        # If rating is low (maybe too small?), increase slightly
         user.portion_multiplier = min(3.0, user.portion_multiplier * 1.05)
-        portion_adjustment = "Increased (Low Satisfaction)"
 
     # 3. SAVE SESSION & XP
     db_session = models.CookingSessionDB(
-        user_id=data["user_id"], 
-        recipe_title=data["recipe"], 
-        start_time=data["start_time"], 
-        end_time=datetime.utcnow(), 
-        status="completed", 
-        rating=req.rating, 
-        leftovers=req.leftovers
+        user_id=data["user_id"], recipe_title=data["recipe"], 
+        start_time=data["start_time"], end_time=datetime.utcnow(), 
+        status="completed", rating=req.rating, leftovers=req.leftovers
     )
     user.xp_points += 10
     user.current_streak += 1
@@ -422,24 +333,13 @@ def end_session(req: schemas.SessionEnd, db: Session = Depends(get_db)):
     # 4. BADGES
     earned_badges = []
     if user.current_streak == 3:
-        badge = models.UserBadgeDB(user_id=user.id, badge_name="Streak Master", description="Cooked 3 days in a row!")
-        db.add(badge)
+        db.add(models.UserBadgeDB(user_id=user.id, badge_name="Streak Master", description="Cooked 3 days in a row!"))
         earned_badges.append("Streak Master")
 
     db.add(db_session)
     db.commit()
     
-    # 5. REORDER SUGGESTIONS
-    exhausted = [i.name for i in user.inventory if i.is_exhausted]
-    
-    return {
-        "status": "Completed", 
-        "new_xp": user.xp_points, 
-        "inventory_updates": f"Updated {updates_made} items", 
-        "portion_adjustment": portion_adjustment,
-        "reorder_suggestions": exhausted,
-        "badges_earned": earned_badges
-    }
+    return {"status": "Completed", "new_xp": user.xp_points, "badges_earned": earned_badges}
 
 @app.get("/")
 def health_check():

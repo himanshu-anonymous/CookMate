@@ -151,5 +151,17 @@ export const cookmateAPI = {
   getShoppingList: async (userId) => {
     const response = await api.get(`/inventory/shopping-list/${userId}`);
     return response.data;
+  },
+
+  // 13. Get Full User Profile
+  getUserProfile: async (userId) => {
+    const response = await api.get(`/users/${userId}`);
+    return response.data;
+  },
+
+  // 14. Update Cooking Skill
+  updateCookingSkill: async (userId, skillLevel) => {
+    const response = await api.put(`/users/${userId}/skill`, { skill_level: skillLevel });
+    return response.data;
   }
 };

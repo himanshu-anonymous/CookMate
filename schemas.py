@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from enum import Enum
 
-# --- ENUMS (Shared with Frontend) ---
+# --- ENUMS ---
 class UserPersona(str, Enum):
     HOSTELER = "hosteler"
     INDIAN_MOM = "indian_mom"
@@ -20,13 +20,9 @@ class UserBase(BaseModel):
     height: float
     gender: str
     persona: UserPersona = UserPersona.HOSTELER
-    
-    # Core Health & Logic
     health_goal: str = "Maintain"
     rotis_per_meal: int = 2
     cooking_skill: int = 5
-    
-    # Advanced Preferences
     medical_conditions: List[str] = [] 
     allergies: List[str] = []
     dietary_preferences: List[str] = []
@@ -78,6 +74,11 @@ class ShoppingItem(BaseModel):
 class ShoppingListResponse(BaseModel):
     shopping_list: List[ShoppingItem]
 
+# 🚨 ADDED THIS CLASS TO FIX YOUR ERROR
+class ConsumeRequest(BaseModel):
+    user_id: int
+    ingredients: List[str]
+
 # ==========================================
 # 3. RECIPE ENGINE & PLANNING
 # ==========================================
@@ -103,7 +104,6 @@ class RecipeResponse(BaseModel):
     effort_level: str
     image_prompt: Optional[str] = None
 
-# Search & Daily Plan
 class SearchRequest(BaseModel):
     user_id: int
     query: str
@@ -117,7 +117,7 @@ class DayPlanRequest(BaseModel):
     diet_preference: List[str]
 
 # ==========================================
-# 4. REAL-TIME MENTOR & GAMIFICATION
+# 4. REAL-TIME MENTOR
 # ==========================================
 class SessionStart(BaseModel):
     user_id: int
@@ -128,7 +128,6 @@ class SessionEnd(BaseModel):
     session_id: int
     rating: int
     leftovers: bool 
-    # Vital for Inventory Logic - This connects the cooking to the pantry
     ingredients_consumed: List[str] = [] 
 
 class SubstituteRequest(BaseModel):

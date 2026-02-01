@@ -42,10 +42,13 @@ const BottomTabs = ({ navigation, activeTab, userId }) => {
         <Text style={[styles.label, activeTab === 'Chef' && styles.activeLabel]}>Chef</Text>
       </TouchableOpacity>
 
-      {/* Profile Tab (Placeholder) */}
-      <TouchableOpacity style={styles.tab}>
-        <Ionicons name="person" size={24} color={COLORS.inactive} />
-        <Text style={styles.label}>Profile</Text>
+      {/* Profile Tab (FIXED) */}
+      <TouchableOpacity 
+        style={styles.tab}
+        onPress={() => navigation.navigate('Profile', { userId: userId })}
+      >
+        <Ionicons name="person" size={24} color={activeTab === 'Profile' ? COLORS.active : COLORS.inactive} />
+        <Text style={[styles.label, activeTab === 'Profile' && styles.activeLabel]}>Profile</Text>
       </TouchableOpacity>
     </View>
   );

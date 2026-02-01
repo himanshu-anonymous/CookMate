@@ -13,6 +13,7 @@ import RecipeDetailsScreen from './screens/RecipeDetailsScreen';
 import RecipeGeneratorScreen from './screens/RecipeGeneratorScreen';
 import CookingModeScreen from './screens/CookingModeScreen';
 import ShoppingListScreen from './screens/ShoppingListScreen';
+import ProfileScreen from './screens/ProfileScreen';
 
 const Stack = createStackNavigator();
 
@@ -37,6 +38,7 @@ export default function App() {
         <Stack.Screen name="RecipeDetails" component={RecipeDetailsScreen} />
         <Stack.Screen name="CookingMode" component={CookingModeScreen} />
         <Stack.Screen name="ShoppingList" component={ShoppingListScreen} />
+        <Stack.Screen name="Profile" component={ProfileScreen} />
 
       </Stack.Navigator>
     </NavigationContainer>
