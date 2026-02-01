@@ -31,10 +31,7 @@ For young adults, the kitchen is a source of anxiety, decision fatigue, and the 
 
 ## 👨‍💻 Team RuntimeTerror
 * **Himanshu Patil** - Backend & AI Architecture
-* **Mokshit Verma** - Frontend & UI/UX Experience
-* **Aryan Mandal** - Deployment, Testing & QnA
-* **Chirag Parmar** - Product Direction & Narrative
-
+* **Aditya Gavane** - Frontend structuring, Scripting
 ## ⚙️ Installation & Setup
 
 ### Prerequisites
@@ -49,3 +46,18 @@ python -m venv venv
 source venv/bin/activate  # or venv\Scripts\activate on Windows
 pip install -r requirements.txt
 uvicorn main:app --reload
+CookMate/
+├── backend/
+│   ├── main.py            # FastAPI Routes & Business Logic
+│   ├── models.py          # Database Models (SQLAlchemy)
+│   ├── schemas.py         # Data Validation (Pydantic)
+│   └── services/
+│       └── ai_chef.py     # AI Engine & Vision Integration
+├── frontend/
+│   ├── screens/           # UI Screens (Home, Cooking, Profile, etc.)
+│   ├── services/
+│   │   └── api.js         # Axios API Configuration
+│   └── components/
+│       └── BottomTabs.js  # Global Navigation Component
+└── README.md
+
