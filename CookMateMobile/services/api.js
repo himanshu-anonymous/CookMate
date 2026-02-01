@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // --------------------------------------------------------
-// ⚠️ FINAL CHECK: Is this your Laptop's IP?
+// ⚠️ CHECK: Is this your Laptop's IP?
 // --------------------------------------------------------
 const API_URL = 'http://192.168.5.71:8000'; 
 
@@ -23,7 +23,7 @@ export const cookmateAPI = {
     }
   },
 
-  // 1.5 Register User (Onboarding)
+  // 1.5 Register User
   registerUser: async (userData) => {
     const response = await api.post('/users/onboard', userData);
     return response.data;
@@ -35,41 +35,23 @@ export const cookmateAPI = {
     return response.data;
   },
 
-  // 2. Upload Bill Image (Fixed: Complete 'fetch' logic)
+  // 2. Upload Bill Image
   scanBill: async (userId, imageUri) => {
     const formData = new FormData();
-    
-    // 🚨 Android Logic: Ensure URI starts with file://
     const uri = imageUri.startsWith('file://') ? imageUri : `file://${imageUri}`;
     
-    formData.append('file', {
-      uri: uri,
-      name: 'bill.jpg',
-      type: 'image/jpeg',
-    });
-    
-    // Send user_id as string
+    formData.append('file', { uri: uri, name: 'bill.jpg', type: 'image/jpeg' });
     formData.append('user_id', String(userId));
 
     try {
-      // Use FETCH (The "Nuclear Option") to avoid Axios Network Errors on Android
       const response = await fetch(`${API_URL}/inventory/scan-bill`, {
         method: 'POST',
         body: formData,
-        headers: {
-          'Accept': 'application/json',
-          // ⚠️ IMPORTANT: No 'Content-Type' header. fetch adds it automatically.
-        },
+        headers: { 'Accept': 'application/json' },
       });
-
       const json = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(JSON.stringify(json));
-      }
-      
+      if (!response.ok) throw new Error(JSON.stringify(json));
       return json;
-
     } catch (error) {
       console.error("Scan Error:", error);
       throw error;
@@ -118,12 +100,56 @@ export const cookmateAPI = {
     return response.data;
   },
 
-  // 7. Manual Add (Vegetable List)
+  // 7. Manual Add
   addInventoryItems: async (userId, items) => {
-    // items = [{ name: "Onion", quantity: 1, unit: "kg", ... }]
     const response = await api.post('/inventory/add', items, {
       params: { user_id: parseInt(userId) } 
     });
+    return response.data;
+  },
+
+  // 8. Guardian Check
+  guardianCheck: async (sessionId, instruction, imageUri) => {
+    const formData = new FormData();
+    const uri = imageUri.startsWith('file://') ? imageUri : `file://${imageUri}`;
+    
+    formData.append('file', { uri: uri, name: 'check.jpg', type: 'image/jpeg' });
+    formData.append('session_id', String(sessionId));
+    formData.append('instruction', instruction);
+
+    try {
+      const response = await fetch(`${API_URL}/mentor/guardian-check`, {
+        method: 'POST',
+        body: formData,
+        headers: { 'Accept': 'application/json' },
+      });
+      return await response.json();
+    } catch (error) {
+      console.error("Guardian Check Failed:", error);
+      throw error;
+    }
+  },
+
+  // 10. Get User Stats
+  getUserStats: async (userId) => {
+    const response = await api.get(`/users/stats/${userId}`);
+    return response.data;
+  },
+
+  // 11. End Session (XP + Inventory Update)
+  endSession: async (sessionId, rating, leftovers, ingredientsConsumed) => {
+    const response = await api.post('/mentor/end', {
+      session_id: parseInt(sessionId),
+      rating: rating || 5,
+      leftovers: leftovers || false,
+      ingredients_consumed: ingredientsConsumed || []
+    });
+    return response.data;
+  },
+  
+  // 12. Get Shopping List
+  getShoppingList: async (userId) => {
+    const response = await api.get(`/inventory/shopping-list/${userId}`);
     return response.data;
   }
 };

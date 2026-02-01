@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { cookmateAPI } from '../services/api';
@@ -7,56 +7,111 @@ const COLORS = { primary: '#2D4F38', background: '#F7F3E8', white: '#FFFFFF', ac
 
 const RecipeDetailsScreen = ({ navigation, route }) => {
   const [loading, setLoading] = useState(false);
-  const recipe = route.params?.recipe || {}; 
+  
+  const recipe = route.params?.recipe || {};
+  const userId = route.params?.userId || 1;
 
-const handleStartCooking = async () => {
+  // 🛠 INTELLIGENT PARSER: Handles Strings OR Smart Objects
+  const getCleanSteps = () => {
+    // 1. Find the Raw Array (Recursive Search)
+    const findRawArray = (obj) => {
+      if (!obj || typeof obj !== 'object') return null;
+      if (Array.isArray(obj.instructions) && obj.instructions.length > 0) return obj.instructions;
+      if (Array.isArray(obj.steps) && obj.steps.length > 0) return obj.steps;
+      if (Array.isArray(obj.directions) && obj.directions.length > 0) return obj.directions;
+      if (Array.isArray(obj.method) && obj.method.length > 0) return obj.method;
+      
+      for (const key in obj) {
+        const value = obj[key];
+        if (Array.isArray(value) && value.length > 0) return value; // Found an array!
+        if (typeof value === 'object') {
+          const found = findRawArray(value);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    let steps = findRawArray(recipe);
+
+    // 2. If we found nothing, try string splitting (Fallback)
+    if (!steps) {
+      const rawText = recipe.instructions || recipe.steps || JSON.stringify(recipe);
+      if (typeof rawText === 'string') {
+        steps = rawText.split(/\d+\.\s+|\n/).map(l => l.trim()).filter(l => l.length > 5);
+      }
+    }
+
+    // 3. 🚨 CRITICAL FIX: Normalize Objects to Strings 🚨
+    // The backend sends objects like: { instruction: "Chop onions", duration_seconds: 60 }
+    // We must convert them to simple strings for React to render.
+    if (steps && Array.isArray(steps)) {
+      return steps.map(step => {
+        if (typeof step === 'string') return step;
+        if (typeof step === 'object') {
+          // Extract the text part from the object
+          return step.instruction || step.step || step.description || step.text || "Follow this step";
+        }
+        return "Prepare ingredients";
+      });
+    }
+
+    // 4. Default Fallback
+    return ["Prepare your ingredients.", "Follow standard procedures.", "Serve and enjoy!"];
+  };
+
+  // Get the cleaned steps once
+  const finalSteps = getCleanSteps();
+
+  const handleStartCooking = async () => {
     setLoading(true);
     try {
-      // 1. Extract Instructions from the Recipe Object
-      // (The AI usually sends them as a list of strings)
-      const steps = recipe.instructions || ["Step 1: Prep", "Step 2: Cook"];
-
-      // 2. Send Title AND Steps to Backend
-      const response = await cookmateAPI.startSession(1, recipe.title, steps);
+      console.log("🚀 Starting Session with steps:", finalSteps);
       
-      // 3. Navigate
+      // Send the CLEAN strings to the backend and cooking mode
+      const response = await cookmateAPI.startSession(userId, recipe.title || "Recipe", finalSteps);
+      
       navigation.navigate('CookingMode', { 
-        recipeId: 1, 
-        initialStep: response.message 
+        sessionData: response, 
+        userId: userId, 
+        recipeSteps: finalSteps 
       });
-      
     } catch (error) {
-       // ... existing error handling ...
+      console.error(error);
+      Alert.alert("Error", "Could not start cooking session.");
+    } finally {
+      setLoading(false);
     }
-    // ...
   };
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
       <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
-        <Image 
-          source={{ uri: recipe.image || 'https://via.placeholder.com/300' }} 
-          style={{ width: '100%', height: 300 }} 
-        />
+        <Image source={{ uri: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c' }} style={{ width: '100%', height: 300 }} />
+        
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color={COLORS.primary} />
         </TouchableOpacity>
         
         <View style={styles.sheet}>
-          <Text style={styles.title}>{recipe.title || "Recipe Name"}</Text>
+          <Text style={styles.title}>{recipe.title || "Delicious Recipe"}</Text>
           
           <View style={styles.statsRow}>
-            <View style={styles.statBadge}><Text style={styles.statText}>🔥 {recipe.calories || 0} kcal</Text></View>
+            <View style={styles.statBadge}><Text style={styles.statText}>🔥 {recipe.calories || 250} kcal</Text></View>
+            <View style={styles.statBadge}><Text style={styles.statText}>⏱️ {recipe.time || "30 mins"}</Text></View>
           </View>
 
           <Text style={styles.section}>Ingredients</Text>
-          {recipe.ingredients && recipe.ingredients.map((item, idx) => {
-            let itemText = typeof item === 'object' ? `${item.name} (${item.qty})` : item;
+          {recipe.ingredients && Array.isArray(recipe.ingredients) ? recipe.ingredients.map((item, idx) => {
+            let itemText = typeof item === 'object' ? `${item.name} (${item.qty || ''})` : item;
             return <Text key={idx} style={styles.item}>• {itemText}</Text>;
-          })}
+          }) : <Text style={styles.item}>• Check pantry items</Text>}
           
           <Text style={styles.section}>Instructions</Text>
-          <Text style={styles.description}>{recipe.description || "No description available."}</Text>
+          {/* Now safe to render because finalSteps contains only Strings */}
+          {finalSteps.map((step, idx) => (
+             <Text key={idx} style={styles.item}>{idx + 1}. {step}</Text>
+          ))}
         </View>
       </ScrollView>
 
@@ -81,8 +136,7 @@ const styles = StyleSheet.create({
   statBadge: { backgroundColor: COLORS.white, paddingVertical: 5, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, borderColor: '#eee' },
   statText: { fontWeight: 'bold', color: COLORS.primary },
   section: { fontSize: 18, fontWeight: 'bold', color: COLORS.primary, marginTop: 15, marginBottom: 5 },
-  item: { fontSize: 16, color: COLORS.textSecondary, marginBottom: 5, paddingLeft: 10 },
-  description: { fontSize: 14, color: COLORS.textSecondary, lineHeight: 22 },
+  item: { fontSize: 16, color: COLORS.textSecondary, marginBottom: 8, paddingLeft: 10, lineHeight: 22 },
   footer: { position: 'absolute', bottom: 30, left: 20, right: 20 },
   cookBtn: { backgroundColor: COLORS.primary, padding: 18, borderRadius: 30, alignItems: 'center', elevation: 5 },
   cookText: { color: 'white', fontSize: 18, fontWeight: 'bold' }
